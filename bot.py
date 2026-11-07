@@ -1,24 +1,117 @@
-import os
-import telebot
-from telebot import types
+import logging
+import datetime
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-bot = telebot.TeleBot(BOT_TOKEN)
+# Настройка логов
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-@bot.message_handler(commands=['start'])
-def start_message(message):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn_night = types.KeyboardButton('🌙 Спокойной ночи')
-    markup.add(btn_night)
-    bot.reply_to(message, "Привет! Я Дора. Я на связи!", reply_markup=markup)
+# --- ФУНКЦИЯ ЧТЕНИЯ БАНКА РУЛЕТКИ ---
+def get_roulette_items():
+    items = []
+    try:
+        # Открываем файл, который лежит в репозитории
+        with open('данные.txt', 'r', encoding='utf-8') as f:
+            text = f.read()
+            
+        current_block = "all"
+        for line in text.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            if "🧹 Дела" in line:
+                current_block = "дела"
+            elif "🎈 Отдых" in line:
+                current_block = "отдых"
+            elif line[0].isdigit():
+                # Извлекаем номер и текст
+                dot_index = line.find('.')
+                if dot_index != -1:
+                    num = int(line[:dot_index])
+                    task_text = line[dot_index+1:].strip()
+                    items.append({"num": num, "text": task_text, "block": current_block})
+    except Exception as e:
+        print(f"Ошибка чтения файла: {e}")
+    return items
 
-@bot.message_handler(content_types=['text'])
-def handle_text(message):
-    text = message.text.lower()
-    if "спокойной ночи" in text or "споки" in text:
-        bot.reply_to(message, "Спокойной ночи, Оля! 🌙 Отдыхай, завтра будет новый день. Не забудь умыться и подвести итоги 😉")
+# --- СТАРТ БОТА ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Кнопка "Рулетка" внизу экрана
+    keyboard = [['🎲 Рулетка']]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        "Привет! Я Дора. Нажми «🎲 Рулетка», чтобы выбрать дело.",
+        reply_markup=reply_markup
+    )
+
+# --- ЗАПУСК РУЛЕТКИ (Выбор фильтра) ---
+async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Инлайн-кнопки (появляются под сообщением)
+    keyboard = [
+        [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
+        [InlineKeyboardButton("На дела", callback_data="spin_дела"), InlineKeyboardButton("На отдых", callback_data="spin_отдых")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
+
+# --- ЛОГИКА ВРАЩЕНИЯ ---
+async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer() # Убираем "часики" с кнопки
+    
+    choice = query.data.replace("spin_", "")
+    
+    # Берем время нажатия кнопки (часы + минуты)
+    now = datetime.datetime.now()
+    seed = now.hour + now.minute
+    if seed == 0:
+        seed = 1 # Защита от нуля
+        
+    all_items = get_roulette_items()
+    
+    # Фильтруем по блоку
+    if choice == "all":
+        filtered = all_items
     else:
-        bot.reply_to(message, f"Я получила текст: '{message.text}'. (Я живая!)")
+        filtered = [i for i in all_items if i["block"] == choice]
+        
+    if not filtered:
+        await query.edit_message_text("В этом блоке пока нет задач.")
+        return
 
-print("Дора запущена...")
-bot.infinity_polling()
+    # Честный рандом по кругу (используем остаток от деления)
+    index = seed % len(filtered)
+    chosen = filtered[index]
+    
+    await query.edit_message_text(
+        f"🎲 №{chosen['num']} — {chosen['text']}",
+        parse_mode=None
+    )
+
+# --- ОБРАБОТЧИК ТЕКСТА ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower()
+    
+    # Если нажали кнопку внизу или написали "рулетка"
+    if text in ['🎲 рулетка', 'рулетка', 'крути рулетку', 'дора, крути рулетку']:
+        await start_roulette(update, context)
+    else:
+        # Пока просто эхо для других сообщений (потом заменим на Инбокс)
+        await update.message.reply_text(f"Я получила текст: '{update.message.text}'. (Скоро научусь его разбирать!)")
+
+# --- ЗАПУСК БОТА ---
+def main():
+    # ВСТАВЬ СЮДА СВОЙ ТОКЕН (который ты сохранила)
+    TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
+    
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("Бот запущен...")
+    app.run_polling()
+
+if __name__ == '__main__':
+    main()
