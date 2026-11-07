@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# --- ЧТЕНИЕ ФАЙЛА ---
 def get_roulette_items():
     items = []
     file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
@@ -53,6 +54,7 @@ def get_roulette_items():
         print(f"Ошибка чтения файла: {e}")
     return items
 
+# --- СТАРТ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [['🎲 Рулетка']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -61,7 +63,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+# --- ВЫБОР ФИЛЬТРА ---
 async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Сбрасываем старые "Вето" при новом заходе
+    context.user_data['veto_list'] = []
+    context.user_data['base_time'] = None
+    context.user_data['current_block'] = None
+
     keyboard = [
         [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
         [InlineKeyboardButton("На дела", callback_data="spin_дела"), InlineKeyboardButton("На отдых", callback_data="spin_отдых")]
@@ -69,30 +77,43 @@ async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
 
+# --- ЛОГИКА ВРАЩЕНИЯ ---
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     choice = query.data.replace("spin_", "")
     
-    now = query.message.date + datetime.timedelta(hours=4)
-    seed = now.hour + now.minute
-    if seed == 0:
-        seed = 1 
-        
+    # Если это первый запуск (нет времени), берем время из сообщения
+    if context.user_data.get('base_time') is None:
+        now = query.message.date + datetime.timedelta(hours=4)
+        context.user_data['base_time'] = now.hour + now.minute
+        context.user_data['current_block'] = choice
+        context.user_data['veto_list'] = []
+    else:
+        # Если мы уже в процессе (нажали Вето), берем сохраненное время
+        choice = context.user_data['current_block']
+    
+    base_seed = context.user_data['base_time']
+    veto_list = context.user_data.get('veto_list', [])
+    
     all_items = get_roulette_items()
     
+    # Фильтруем по блоку
     if choice == "all":
         filtered = all_items
     else:
         filtered = [i for i in all_items if i["block"] == choice]
         
+    # Убираем вычеркнутые
+    filtered = [i for i in filtered if i["num"] not in veto_list]
+    
     if not filtered:
-        await query.edit_message_text("В этом блоке пока нет задач.")
+        await query.edit_message_text("Задач больше нет. Нажми Рулетка.")
         return
 
     total = len(filtered)
-    target_num = (seed - 1) % total + 1
+    target_num = (base_seed - 1) % total + 1
     
     chosen = None
     for item in filtered:
@@ -105,16 +126,39 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     debug_text = (
         f"\n\n🕵️‍♀️ Отладка:\n"
-        f"Время: {now.hour}:{now.minute:02d} (сумма {seed})\n"
-        f"Блок: {choice} (всего {total})\n"
+        f"Время: {base_seed} (сумма)\n"
+        f"Блок: {choice} (доступно {total})\n"
         f"Вычислено: {target_num}\n"
-        f"Номер задачи: {chosen['num']}"
+        f"Номер задачи: {chosen['num']}\n"
+        f"Вето: {veto_list}"
     )
+
+    # Создаем кнопку Вето
+    keyboard = [[InlineKeyboardButton("🚫 Вето", callback_data=f"veto_{chosen['num']}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(
-        f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}"
+        f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}",
+        reply_markup=reply_markup
     )
 
+# --- ОБРАБОТКА ВЕТО ---
+async def veto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Достаем номер задачи из callback_data (например, veto_14)
+    veto_num = int(query.data.replace("veto_", ""))
+    
+    # Добавляем в список вычеркнутых
+    if 'veto_list' not in context.user_data:
+        context.user_data['veto_list'] = []
+    context.user_data['veto_list'].append(veto_num)
+    
+    # Вызываем spin заново, чтобы он выдал следующую
+    await spin(update, context)
+
+# --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
@@ -130,6 +174,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
+    app.add_handler(CallbackQueryHandler(veto, pattern="^veto_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Бот запущен...")
