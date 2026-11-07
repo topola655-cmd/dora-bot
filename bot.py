@@ -11,7 +11,7 @@ def get_roulette_items():
     items = []
     try:
         # Открываем файл, который лежит в репозитории
-        with open('данные.txt', 'r', encoding='utf-8') as f:
+        with open('data.txt', 'r', encoding='utf-8') as f:
             text = f.read()
             
         current_block = "all"
