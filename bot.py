@@ -147,16 +147,91 @@ async def veto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # Достаем номер задачи из callback_data (например, veto_14)
+    # 1. Достаем номер вычеркнутой задачи
     veto_num = int(query.data.replace("veto_", ""))
     
-    # Добавляем в список вычеркнутых
+    # 2. Добавляем в список вычеркнутых
     if 'veto_list' not in context.user_data:
         context.user_data['veto_list'] = []
     context.user_data['veto_list'].append(veto_num)
     
-    # Вызываем spin заново, чтобы он выдал следующую
-    await spin(update, context)
+    base_seed = context.user_data.get('base_time')
+    choice = context.user_data.get('current_block')
+    veto_list = context.user_data['veto_list']
+    
+    all_items = get_roulette_items()
+    
+    # 3. Фильтруем по блоку
+    if choice == "all":
+        filtered = all_items
+    else:
+        filtered = [i for i in all_items if i["block"] == choice]
+        
+    # 4. Убираем вычеркнутые
+    filtered = [i for i in filtered if i["num"] not in veto_list]
+    
+    if not filtered:
+        await query.edit_message_text("Задач больше нет. Нажми Рулетка.")
+        return
+
+    total = len(filtered)
+    
+    # 5. Находим индекс вычеркнутой задачи в общем отфильтрованном списке (до удаления)
+    # Для этого берем список без вычеркнутых, но с текущей задачей
+    temp_filtered = [i for i in all_items if (choice == "all" or i["block"] == choice)]
+    
+    # Находим, где стояла вычеркнутая задача
+    veto_index = -1
+    for idx, item in enumerate(temp_filtered):
+        if item["num"] == veto_num:
+            veto_index = idx
+            break
+            
+    # Если вдруг не нашли (не должно быть), начинаем с 0
+    if veto_index == -1:
+        veto_index = 0
+        
+    # 6. Находим следующую задачу (она будет первой в новом отсчете)
+    # Ищем в temp_filtered следующий элемент, который НЕ в veto_list
+    start_item = None
+    for i in range(1, len(temp_filtered) + 1):
+        next_idx = (veto_index + i) % len(temp_filtered)
+        if temp_filtered[next_idx]["num"] not in veto_list:
+            start_item = temp_filtered[next_idx]
+            break
+            
+    if not start_item:
+        await query.edit_message_text("Задач больше нет. Нажми Рулетка.")
+        return
+
+    # 7. Вычисляем, на сколько шагов сдвинуться от start_item
+    # Начинаем с start_item как шаг 1, делаем base_seed шагов
+    # Нам нужно найти индекс start_item в filtered (списке без вычеркнутых)
+    start_index_in_filtered = filtered.index(start_item)
+    
+    # Сдвиг = (base_seed - 1) % total
+    shift = (base_seed - 1) % total
+    final_index = (start_index_in_filtered + shift) % total
+    
+    chosen = filtered[final_index]
+
+    debug_text = (
+        f"\n\n🕵️‍♀️ Отладка:\n"
+        f"Время: {base_seed} (сумма)\n"
+        f"Блок: {choice} (доступно {total})\n"
+        f"Старт с: №{start_item['num']} (следующая после №{veto_num})\n"
+        f"Сдвиг: {shift} шагов\n"
+        f"Номер задачи: {chosen['num']}\n"
+        f"Вето: {veto_list}"
+    )
+
+    keyboard = [[InlineKeyboardButton("🚫 Вето", callback_data=f"veto_{chosen['num']}")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}",
+        reply_markup=reply_markup
+    )
 
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
