@@ -67,16 +67,10 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     choice = query.data.replace("spin_", "")
-    
-    # Берем время нажатия кнопки (часы + минуты)
     now = datetime.datetime.now()
     seed = now.hour + now.minute
-    if seed == 0:
-        seed = 1 
-        
-    all_items = get_roulette_items()
     
-    # Фильтруем по блоку
+    all_items = get_roulette_items()
     if choice == "all":
         filtered = all_items
     else:
@@ -86,12 +80,14 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("В этом блоке пока нет задач.")
         return
 
-    # Честный рандом по кругу
-    index = seed % len(filtered)
+    # ВРЕМЕННАЯ ПРОВЕРКА
+    total = len(filtered)
+    index = seed % total
     chosen = filtered[index]
     
     await query.edit_message_text(
-        f"🎲 №{chosen['num']} — {chosen['text']}"
+        f"Выпало: №{chosen['num']} — {chosen['text']}\n\n"
+        f"🕵️‍♀️ Отладка: время={seed}, всего задач={total}, индекс={index}"
     )
 
 # --- ОБРАБОТЧИК ТЕКСТА ---
