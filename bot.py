@@ -35,13 +35,18 @@ def get_roulette_items():
     return items
 
 # --- СТАРТ БОТА ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Кнопка "Рулетка" внизу экрана
-    keyboard = [['🎲 Рулетка']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ТЕСТОВЫЙ БЛОК: считаем пункты
+    items = get_roulette_items()
+    count = len(items)
+    first = items[0]['text'] if items else "Пусто"
+    last = items[-1]['text'] if items else "Пусто"
+    
     await update.message.reply_text(
-        "Привет! Я Дора. Нажми «🎲 Рулетка», чтобы выбрать дело.",
-        reply_markup=reply_markup
+        f"🕵️‍♀️ Проверка файла:\n"
+        f"Я нашел: {count} задач.\n"
+        f"Первая: {first}\n"
+        f"Последняя: {last}"
     )
 
 # --- ЗАПУСК РУЛЕТКИ (Выбор фильтра) ---
