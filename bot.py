@@ -10,38 +10,35 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # --- ФУНКЦИЯ ЧТЕНИЯ БАНКА РУЛЕТКИ ---
 def get_roulette_items():
     items = []
-    file_name = None
+    file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
     
-    # Умный поиск файла (на случай, если браузер его переименовал)
-    if os.path.exists('data.txt'):
-        file_name = 'data.txt'
-    elif os.path.exists('данные.txt'):
-        file_name = 'данные.txt'
-        
-    if not file_name:
-        print("Ошибка: файл с данными не найден!")
+    if not os.path.exists(file_name):
         return items
 
     try:
         with open(file_name, 'r', encoding='utf-8') as f:
-            text = f.read()
+            lines = f.readlines()
             
         current_block = "all"
-        for line in text.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            if "🧹 Дела" in line or "Дела" in line:
+        for line in lines:
+            clean_line = line.strip()
+            
+            # Жестко ловим блоки
+            if "Дела" in clean_line:
                 current_block = "дела"
-            elif "🎈 Отдых" in line or "Отдых" in line:
+            elif "Отдых" in clean_line:
                 current_block = "отдых"
-            elif line[0].isdigit():
-                # Извлекаем номер и текст
-                dot_index = line.find('.')
-                if dot_index != -1:
-                    num = int(line[:dot_index])
-                    task_text = line[dot_index+1:].strip()
-                    items.append({"num": num, "text": task_text, "block": current_block})
+            
+            # Жестко ловим только те строки, где есть цифра и точка
+            if len(clean_line) > 2 and clean_line[0].isdigit() and clean_line[1] == '.':
+                try:
+                    num = int(clean_line[0])
+                except:
+                    num = 0
+                
+                task_text = clean_line[2:].strip()
+                items.append({"num": num, "text": task_text, "block": current_block})
+                
     except Exception as e:
         print(f"Ошибка чтения файла: {e}")
     return items
