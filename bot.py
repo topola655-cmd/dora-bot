@@ -4,15 +4,14 @@ import os
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
-# Настройка логов
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- ФУНКЦИЯ ЧТЕНИЯ БАНКА РУЛЕТКИ ---
 def get_roulette_items():
     items = []
     file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
     
     if not os.path.exists(file_name):
+        print("Файл не найден")
         return items
 
     try:
@@ -22,28 +21,38 @@ def get_roulette_items():
         current_block = "all"
         for line in lines:
             clean_line = line.strip()
+            if not clean_line:
+                continue
             
-            # Жестко ловим блоки
             if "Дела" in clean_line:
                 current_block = "дела"
+                continue
             elif "Отдых" in clean_line:
                 current_block = "отдых"
+                continue
             
-            # Жестко ловим только те строки, где есть цифра и точка
-            if len(clean_line) > 2 and clean_line[0].isdigit() and clean_line[1] == '.':
-                try:
-                    num = int(clean_line[0])
-                except:
-                    num = 0
+            num_str = ""
+            for char in clean_line:
+                if char.isdigit():
+                    num_str += char
+                else:
+                    break
+            
+            if num_str:
+                task_text = clean_line[len(num_str):].strip()
+                if task_text.startswith('.'):
+                    task_text = task_text[1:].strip()
                 
-                task_text = clean_line[2:].strip()
-                items.append({"num": num, "text": task_text, "block": current_block})
+                items.append({
+                    "num": int(num_str), 
+                    "text": task_text, 
+                    "block": current_block
+                })
                 
     except Exception as e:
         print(f"Ошибка чтения файла: {e}")
     return items
 
-# --- СТАРТ БОТА ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [['🎲 Рулетка']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -52,7 +61,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# --- ЗАПУСК РУЛЕТКИ (Выбор фильтра) ---
 async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
@@ -61,16 +69,19 @@ async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
 
-# --- ЛОГИКА ВРАЩЕНИЯ ---
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     choice = query.data.replace("spin_", "")
+    
     now = datetime.datetime.now()
     seed = now.hour + now.minute
-    
+    if seed == 0:
+        seed = 1 
+        
     all_items = get_roulette_items()
+    
     if choice == "all":
         filtered = all_items
     else:
@@ -80,17 +91,30 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("В этом блоке пока нет задач.")
         return
 
-    # ВРЕМЕННАЯ ПРОВЕРКА
     total = len(filtered)
-    index = seed % total
-    chosen = filtered[index]
+    target_num = (seed - 1) % total + 1
     
-    await query.edit_message_text(
-        f"Выпало: №{chosen['num']} — {chosen['text']}\n\n"
-        f"🕵️‍♀️ Отладка: время={seed}, всего задач={total}, индекс={index}"
+    chosen = None
+    for item in filtered:
+        if item["num"] == target_num:
+            chosen = item
+            break
+            
+    if not chosen:
+        chosen = filtered[target_num - 1]
+
+    debug_text = (
+        f"\n\n🕵️‍♀️ Отладка:\n"
+        f"Время: {now.hour}:{now.minute:02d} (сумма {seed})\n"
+        f"Блок: {choice} (всего {total})\n"
+        f"Вычислено: {target_num}\n"
+        f"Номер задачи: {chosen['num']}"
     )
 
-# --- ОБРАБОТЧИК ТЕКСТА ---
+    await query.edit_message_text(
+        f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}"
+    )
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
@@ -99,9 +123,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
-# --- ЗАПУСК БОТА ---
 def main():
-    # ВСТАВЬ СЮДА СВОЙ ТОКЕН
     TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
     
     app = Application.builder().token(TOKEN).build()
