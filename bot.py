@@ -75,7 +75,7 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     choice = query.data.replace("spin_", "")
     
-    now = datetime.datetime.now()
+    now = query.message.date + datetime.timedelta(hours=4)
     seed = now.hour + now.minute
     if seed == 0:
         seed = 1 
