@@ -1,5 +1,6 @@
 import logging
 import datetime
+import os
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
@@ -9,9 +10,20 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # --- ФУНКЦИЯ ЧТЕНИЯ БАНКА РУЛЕТКИ ---
 def get_roulette_items():
     items = []
+    file_name = None
+    
+    # Умный поиск файла (на случай, если браузер его переименовал)
+    if os.path.exists('data.txt'):
+        file_name = 'data.txt'
+    elif os.path.exists('данные.txt'):
+        file_name = 'данные.txt'
+        
+    if not file_name:
+        print("Ошибка: файл с данными не найден!")
+        return items
+
     try:
-        # Открываем файл, который лежит в репозитории
-        with open('data.txt', 'r', encoding='utf-8') as f:
+        with open(file_name, 'r', encoding='utf-8') as f:
             text = f.read()
             
         current_block = "all"
@@ -19,9 +31,9 @@ def get_roulette_items():
             line = line.strip()
             if not line:
                 continue
-            if "🧹 Дела" in line:
+            if "🧹 Дела" in line or "Дела" in line:
                 current_block = "дела"
-            elif "🎈 Отдых" in line:
+            elif "🎈 Отдых" in line or "Отдых" in line:
                 current_block = "отдых"
             elif line[0].isdigit():
                 # Извлекаем номер и текст
@@ -35,23 +47,16 @@ def get_roulette_items():
     return items
 
 # --- СТАРТ БОТА ---
-async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ТЕСТОВЫЙ БЛОК: считаем пункты
-    items = get_roulette_items()
-    count = len(items)
-    first = items[0]['text'] if items else "Пусто"
-    last = items[-1]['text'] if items else "Пусто"
-    
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [['🎲 Рулетка']]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        f"🕵️‍♀️ Проверка файла:\n"
-        f"Я нашел: {count} задач.\n"
-        f"Первая: {first}\n"
-        f"Последняя: {last}"
+        "Привет! Я Дора. Нажми «🎲 Рулетка», чтобы выбрать дело.",
+        reply_markup=reply_markup
     )
 
 # --- ЗАПУСК РУЛЕТКИ (Выбор фильтра) ---
 async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Инлайн-кнопки (появляются под сообщением)
     keyboard = [
         [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
         [InlineKeyboardButton("На дела", callback_data="spin_дела"), InlineKeyboardButton("На отдых", callback_data="spin_отдых")]
@@ -62,7 +67,7 @@ async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- ЛОГИКА ВРАЩЕНИЯ ---
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer() # Убираем "часики" с кнопки
+    await query.answer()
     
     choice = query.data.replace("spin_", "")
     
@@ -70,7 +75,7 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.datetime.now()
     seed = now.hour + now.minute
     if seed == 0:
-        seed = 1 # Защита от нуля
+        seed = 1 
         
     all_items = get_roulette_items()
     
@@ -84,29 +89,26 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("В этом блоке пока нет задач.")
         return
 
-    # Честный рандом по кругу (используем остаток от деления)
+    # Честный рандом по кругу
     index = seed % len(filtered)
     chosen = filtered[index]
     
     await query.edit_message_text(
-        f"🎲 №{chosen['num']} — {chosen['text']}",
-        parse_mode=None
+        f"🎲 №{chosen['num']} — {chosen['text']}"
     )
 
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
-    # Если нажали кнопку внизу или написали "рулетка"
     if text in ['🎲 рулетка', 'рулетка', 'крути рулетку', 'дора, крути рулетку']:
         await start_roulette(update, context)
     else:
-        # Пока просто эхо для других сообщений (потом заменим на Инбокс)
-        await update.message.reply_text(f"Я получила текст: '{update.message.text}'. (Скоро научусь его разбирать!)")
+        await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
 # --- ЗАПУСК БОТА ---
 def main():
-    # ВСТАВЬ СЮДА СВОЙ ТОКЕН (который ты сохранила)
+    # ВСТАВЬ СЮДА СВОЙ ТОКЕН
     TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
     
     app = Application.builder().token(TOKEN).build()
