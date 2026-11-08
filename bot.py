@@ -224,9 +224,26 @@ async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i, line in enumerate(lines, 1):
             text += f"{i}. {line}\n"
             
-        await update.message.reply_text(text)
+        keyboard = [[InlineKeyboardButton("🗑 Удалить задачу", callback_data="delete_task_prompt")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+            
+        await update.message.reply_text(text, reply_markup=reply_markup)
     except Exception as e:
         await update.message.reply_text(f"Ошибка при чтении Инбокса: {e}")
+
+# --- ИНБОКС: УДАЛЕНИЕ (ЗАПРОС НОМЕРА) ---
+async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['mode'] = 'delete_inbox'
+    
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+        
+    await query.message.reply_text("Напиши номер задачи, которую нужно удалить.")
 
 # --- ФУНКЦИЯ СОХРАНЕНИЯ В GITHUB ---
 async def save_to_github(text):
@@ -268,7 +285,6 @@ async def save_to_github(text):
     response = requests.put(url, headers=headers, json=data)
     
     if response.status_code in [200, 201]:
-        # После сохранения в GitHub, обновляем локальный файл
         try:
             with open('inbox.txt', 'w', encoding='utf-8') as f:
                 f.write(new_content)
@@ -277,6 +293,62 @@ async def save_to_github(text):
         return True, "Успешно"
     else:
         return False, f"Ошибка сохранения: {response.text}"
+
+# --- ФУНКЦИЯ УДАЛЕНИЯ ИЗ GITHUB ---
+async def delete_from_github(task_number):
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token:
+        return False, "Токен не найден"
+        
+    repo = "topola655-cmd/dora-bot"
+    path = "inbox.txt"
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code == 200:
+        content_data = response.json()
+        sha = content_data['sha']
+        current_content = base64.b64decode(content_data['content']).decode('utf-8')
+    else:
+        return False, "Файл не найден"
+        
+    lines = [line.strip() for line in current_content.split('\n') if line.strip()]
+    
+    if task_number < 1 or task_number > len(lines):
+        return False, "Задачи с таким номером нет"
+        
+    # Удаляем задачу по индексу (номер - 1)
+    del lines[task_number - 1]
+    
+    new_content = "\n".join(lines)
+    if new_content:
+        new_content += "\n"
+        
+    encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+    
+    data = {
+        "message": f"Удалена задача {task_number} из Инбокса",
+        "content": encoded_content,
+        "sha": sha
+    }
+        
+    response = requests.put(url, headers=headers, json=data)
+    
+    if response.status_code in [200, 201]:
+        try:
+            with open('inbox.txt', 'w', encoding='utf-8') as f:
+                f.write(new_content)
+        except Exception:
+            pass
+        return True, "Успешно"
+    else:
+        return False, f"Ошибка удаления: {response.text}"
 
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -296,6 +368,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text(f"Ошибка: {message}")
             context.user_data['mode'] = None
+        elif context.user_data.get('mode') == 'delete_inbox':
+            try:
+                task_num = int(update.message.text.strip())
+                success, message = await delete_from_github(task_num)
+                if success:
+                    await update.message.reply_text("Задача удалена ✅")
+                else:
+                    await update.message.reply_text(f"Ошибка: {message}")
+            except ValueError:
+                await update.message.reply_text("Пожалуйста, напиши число (номер задачи).")
+            context.user_data['mode'] = None
         else:
             await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
@@ -312,6 +395,7 @@ def main():
     app.add_handler(CallbackQueryHandler(skip, pattern="^skip_"))
     app.add_handler(CallbackQueryHandler(take, pattern="^take_"))
     app.add_handler(CallbackQueryHandler(cancel_inbox, pattern="^cancel_inbox"))
+    app.add_handler(CallbackQueryHandler(delete_task_prompt, pattern="^delete_task_prompt"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Бот запущен...")
