@@ -223,6 +223,7 @@ async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text("Хорошо, отменила.")
 
 # --- ИНБОКС: ПОКАЗАТЬ ---
+# --- ИНБОКС: ПОКАЗАТЬ (ИЗ GITHUB) ---
 async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -232,28 +233,41 @@ async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    if not os.path.exists('inbox.txt'):
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token:
+        await query.message.reply_text("Ошибка: нет доступа к GitHub.")
+        return
+        
+    repo = "topola655-cmd/dora-bot"
+    path = "inbox.txt"
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code == 404:
+        await query.message.reply_text("Инбокс пока пуст.")
+        return
+    elif response.status_code != 200:
+        await query.message.reply_text(f"Ошибка GitHub: {response.status_code}")
+        return
+        
+    content_data = response.json()
+    current_content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = [line.strip() for line in current_content.split('\n') if line.strip()]
+        
+    if not lines:
         await query.message.reply_text("Инбокс пока пуст.")
         return
         
-    try:
-        with open('inbox.txt', 'r', encoding='utf-8') as f:
-            lines = [line.strip() for line in f.readlines() if line.strip()]
-            
-        if not lines:
-            await query.message.reply_text("Инбокс пока пуст.")
-            return
-            
-        text = "📋 Твой Инбокс:\n\n"
-        for i, line in enumerate(lines, 1):
-            text += f"{i}. {line}\n"
-            
-        keyboard = [[InlineKeyboardButton("🗑 Удалить задачу", callback_data="delete_task_prompt")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-            
-        await query.message.reply_text(text, reply_markup=reply_markup)
-    except Exception as e:
-        await query.message.reply_text(f"Ошибка при чтении Инбокса: {e}")
+    text = "📋 Твой Инбокс:\n\n"
+    for i, line in enumerate(lines, 1):
+        text += f"{i}. {line}\n"
+        
+    keyboard = [[InlineKeyboardButton("🗑 Удалить задачу", callback_data="delete_task_prompt")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+        
+    await query.message.reply_text(text, reply_markup=reply_markup)
 
 # --- ИНБОКС: УДАЛЕНИЕ (ЗАПРОС НОМЕРА) ---
 async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
