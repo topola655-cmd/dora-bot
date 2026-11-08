@@ -8,6 +8,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
+# --- ЧТЕНИЕ ФАЙЛА РУЛЕТКИ ---
 def get_roulette_items():
     items = []
     file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
@@ -54,6 +55,7 @@ def get_roulette_items():
         print(f"Ошибка чтения файла: {e}")
     return items
 
+# --- РУЛЕТКА ---
 async def do_spin(query, context):
     choice = context.user_data['current_block']
     base_seed = context.user_data['base_time']
@@ -169,6 +171,7 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Отлично, пошла делать! 💪")
 
+# --- ИНБОКС ---
 async def inbox_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mode'] = None
     keyboard = [
@@ -267,6 +270,7 @@ async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     await query.message.reply_text("Напиши номера задач через запятую (например, 1, 3, 4).")
 
+# --- РАЗБОР ИНБОКСА ---
 async def start_sorting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -378,7 +382,6 @@ async def sort_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await next_sorting_task(query.message, context)
 
 async def save_sorted_task(message, context):
-    # Достаем задачу и данные из памяти
     task_text = context.user_data.get('sorting_task')
     dest = context.user_data.get('sort_dest')
     extra = context.user_data.get('sort_extra', '')
@@ -386,7 +389,6 @@ async def save_sorted_task(message, context):
     if not task_text:
         return
         
-    # Формируем строчку для файла
     if dest == '📅 Будущее':
         line = f"📅 {task_text} ({extra})\n"
     elif dest == '🔁 Регулярные':
@@ -394,24 +396,20 @@ async def save_sorted_task(message, context):
     elif dest == '📦 Инкубатор':
         line = f"📦 [{extra}] {task_text}\n"
         
-    # Сохраняем в файл на GitHub
     success, msg = await append_to_github("tasks.txt", line)
     
     if success:
         # Удаляем первую задачу из Инбокса
         await delete_first_from_inbox()
         
-        # Сбрасываем счетчик пропусков, так как задача изменилась
-        context.user_data['sort_skip_count'] = 0 
-        
-        # Пишем отчет пользователю
         await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line.strip()}")
         
-        # Переходим к следующей задаче
+        # Переходим к следующей задаче (счетчик НЕ ТРОГАЕМ)
         await next_sorting_task(message, context)
     else:
         await message.reply_text(f"Ошибка сохранения: {msg}")
 
+# --- GITHUB ФУНКЦИИ ---
 async def append_to_github(path, text):
     token = os.environ.get('GITHUB_TOKEN')
     if not token: return False, "Токен не найден"
@@ -466,6 +464,32 @@ async def delete_first_from_inbox():
         with open('inbox.txt', 'w', encoding='utf-8') as f:
             f.write(new_content)
 
+async def delete_multiple_from_github(task_numbers):
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token: return False, "Нет токена"
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    res = requests.get(url, headers=headers)
+    if res.status_code != 200: return False, "Нет файла"
+    
+    data = res.json()
+    sha = data['sha']
+    content = base64.b64decode(data['content']).decode('utf-8')
+    lines = [l.strip() for l in content.split('\n') if l.strip()]
+    
+    for num in sorted(task_numbers, reverse=True):
+        if 1 <= num <= len(lines):
+            del lines[num - 1]
+            
+    new_content = "\n".join(lines) + "\n" if lines else ""
+    encoded = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+    payload = {"message": f"Удаление задач", "content": encoded, "sha": sha}
+    res2 = requests.put(url, headers=headers, json=payload)
+    return res2.status_code in [200, 201], "OK"
+
+# --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
@@ -513,31 +537,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
-async def delete_multiple_from_github(task_numbers):
-    token = os.environ.get('GITHUB_TOKEN')
-    if not token: return False, "Нет токена"
-    repo = "topola655-cmd/dora-bot"
-    url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
-    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-    
-    res = requests.get(url, headers=headers)
-    if res.status_code != 200: return False, "Нет файла"
-    
-    data = res.json()
-    sha = data['sha']
-    content = base64.b64decode(data['content']).decode('utf-8')
-    lines = [l.strip() for l in content.split('\n') if l.strip()]
-    
-    for num in sorted(task_numbers, reverse=True):
-        if 1 <= num <= len(lines):
-            del lines[num - 1]
-            
-    new_content = "\n".join(lines) + "\n" if lines else ""
-    encoded = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
-    payload = {"message": f"Удаление задач", "content": encoded, "sha": sha}
-    res2 = requests.put(url, headers=headers, json=payload)
-    return res2.status_code in [200, 201], "OK"
-
+# --- ЗАПУСК ---
 def main():
     TOKEN = os.environ.get('BOT_TOKEN')
     if not TOKEN:
