@@ -399,12 +399,12 @@ async def save_sorted_task(message, context):
     success, msg = await append_to_github("tasks.txt", line)
     
     if success:
-        # Удаляем первую задачу из Инбокса
-        await delete_first_from_inbox()
+        # Удаляем именно ту задачу, которую разобрали
+        await delete_first_from_inbox(task_text)
         
         await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line.strip()}")
         
-        # Переходим к следующей задаче (счетчик НЕ ТРОГАЕМ)
+        # Переходим к следующей задаче
         await next_sorting_task(message, context)
     else:
         await message.reply_text(f"Ошибка сохранения: {msg}")
@@ -440,7 +440,7 @@ async def append_to_github(path, text):
     response = requests.put(url, headers=headers, json=data)
     return response.status_code in [200, 201], "OK"
 
-async def delete_first_from_inbox():
+async def delete_first_from_inbox(task_text_to_delete):
     token = os.environ.get('GITHUB_TOKEN')
     repo = "topola655-cmd/dora-bot"
     url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
@@ -454,8 +454,10 @@ async def delete_first_from_inbox():
     current_content = base64.b64decode(content_data['content']).decode('utf-8')
     lines = [line.strip() for line in current_content.split('\n') if line.strip()]
     
-    if lines:
-        del lines[0] 
+    # Ищем задачу по тексту и удаляем именно её
+    if task_text_to_delete in lines:
+        lines.remove(task_text_to_delete)
+        
         new_content = "\n".join(lines) + "\n" if lines else ""
         encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
         data = {"message": "Удалена разобранная задача", "content": encoded_content, "sha": sha}
