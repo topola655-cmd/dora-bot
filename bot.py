@@ -65,7 +65,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ВЫБОР ФИЛЬТРА ---
 async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Сбрасываем старые "Вето" при новом заходе
     context.user_data['veto_list'] = []
     context.user_data['base_time'] = None
     context.user_data['current_block'] = None
@@ -82,16 +81,24 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    choice = query.data.replace("spin_", "")
+    # Убираем кнопки у предыдущего сообщения (если это был Пропустить)
+    if query.data.startswith("skip_"):
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        choice = context.user_data.get('current_block')
+    else:
+        choice = query.data.replace("spin_", "")
     
-    # Если это первый запуск (нет времени), берем время из сообщения
+    # Инициализация при первом запуске
     if context.user_data.get('base_time') is None:
         now = query.message.date + datetime.timedelta(hours=4)
         context.user_data['base_time'] = now.hour + now.minute
         context.user_data['current_block'] = choice
         context.user_data['veto_list'] = []
+        context.user_data['last_index'] = None
     else:
-        # Если мы уже в процессе (нажали Вето), берем сохраненное время
         choice = context.user_data['current_block']
     
     base_seed = context.user_data['base_time']
@@ -99,139 +106,78 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     all_items = get_roulette_items()
     
-    # Фильтруем по блоку
     if choice == "all":
         filtered = all_items
     else:
         filtered = [i for i in all_items if i["block"] == choice]
         
-    # Убираем вычеркнутые
     filtered = [i for i in filtered if i["num"] not in veto_list]
     
     if not filtered:
-        await query.edit_message_text("Задач больше нет. Нажми Рулетка.")
+        await query.message.reply_text("Задач больше нет. Нажми Рулетка.")
         return
 
     total = len(filtered)
-    target_num = (base_seed - 1) % total + 1
     
-    chosen = None
-    for item in filtered:
-        if item["num"] == target_num:
-            chosen = item
-            break
-            
-    if not chosen:
-        chosen = filtered[target_num - 1]
+    if context.user_data.get('last_index') is None:
+        start_index = 0
+    else:
+        start_index = context.user_data['last_index']
+        if start_index >= total:
+            start_index = 0
+
+    final_index = (start_index + (base_seed - 1)) % total
+    chosen = filtered[final_index]
+    context.user_data['last_index'] = final_index
 
     debug_text = (
         f"\n\n🕵️‍♀️ Отладка:\n"
-        f"Время: {base_seed} (сумма)\n"
+        f"Время: {base_seed}\n"
         f"Блок: {choice} (доступно {total})\n"
-        f"Вычислено: {target_num}\n"
         f"Номер задачи: {chosen['num']}\n"
-        f"Вето: {veto_list}"
+        f"Пропущено: {veto_list}"
     )
 
-    # Создаем кнопку Вето
-    keyboard = [[InlineKeyboardButton("🚫 Вето", callback_data=f"veto_{chosen['num']}")]]
+    # Кнопки Беру и Пропустить
+    keyboard = [[
+        InlineKeyboardButton("✅ Беру", callback_data=f"take_{chosen['num']}"),
+        InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip_{chosen['num']}")
+    ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.edit_message_text(
+    # Отправляем НОВОЕ сообщение
+    await query.message.reply_text(
         f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}",
         reply_markup=reply_markup
     )
 
-# --- ОБРАБОТКА ВЕТО ---
-async def veto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- ОБРАБОТКА КНОПКИ ПРОПУСТИТЬ ---
+async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # 1. Достаем номер вычеркнутой задачи
-    veto_num = int(query.data.replace("veto_", ""))
+    skip_num = int(query.data.replace("skip_", ""))
     
-    # 2. Добавляем в список вычеркнутых
     if 'veto_list' not in context.user_data:
         context.user_data['veto_list'] = []
-    context.user_data['veto_list'].append(veto_num)
+    context.user_data['veto_list'].append(skip_num)
     
-    base_seed = context.user_data.get('base_time')
-    choice = context.user_data.get('current_block')
-    veto_list = context.user_data['veto_list']
+    # Передаем управление в spin, передавая callback_data
+    query.data = f"skip_{skip_num}" 
+    await spin(update, context)
+
+# --- ОБРАБОТКА КНОПКИ БЕРУ ---
+async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     
-    all_items = get_roulette_items()
-    
-    # 3. Фильтруем по блоку
-    if choice == "all":
-        filtered = all_items
-    else:
-        filtered = [i for i in all_items if i["block"] == choice]
+    # Убираем кнопки у текущего сообщения
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
         
-    # 4. Убираем вычеркнутые
-    filtered = [i for i in filtered if i["num"] not in veto_list]
-    
-    if not filtered:
-        await query.edit_message_text("Задач больше нет. Нажми Рулетка.")
-        return
-
-    total = len(filtered)
-    
-    # 5. Находим индекс вычеркнутой задачи в общем отфильтрованном списке (до удаления)
-    # Для этого берем список без вычеркнутых, но с текущей задачей
-    temp_filtered = [i for i in all_items if (choice == "all" or i["block"] == choice)]
-    
-    # Находим, где стояла вычеркнутая задача
-    veto_index = -1
-    for idx, item in enumerate(temp_filtered):
-        if item["num"] == veto_num:
-            veto_index = idx
-            break
-            
-    # Если вдруг не нашли (не должно быть), начинаем с 0
-    if veto_index == -1:
-        veto_index = 0
-        
-    # 6. Находим следующую задачу (она будет первой в новом отсчете)
-    # Ищем в temp_filtered следующий элемент, который НЕ в veto_list
-    start_item = None
-    for i in range(1, len(temp_filtered) + 1):
-        next_idx = (veto_index + i) % len(temp_filtered)
-        if temp_filtered[next_idx]["num"] not in veto_list:
-            start_item = temp_filtered[next_idx]
-            break
-            
-    if not start_item:
-        await query.edit_message_text("Задач больше нет. Нажми Рулетка.")
-        return
-
-    # 7. Вычисляем, на сколько шагов сдвинуться от start_item
-    # Начинаем с start_item как шаг 1, делаем base_seed шагов
-    # Нам нужно найти индекс start_item в filtered (списке без вычеркнутых)
-    start_index_in_filtered = filtered.index(start_item)
-    
-    # Сдвиг = (base_seed - 1) % total
-    shift = (base_seed - 1) % total
-    final_index = (start_index_in_filtered + shift) % total
-    
-    chosen = filtered[final_index]
-
-    debug_text = (
-        f"\n\n🕵️‍♀️ Отладка:\n"
-        f"Время: {base_seed} (сумма)\n"
-        f"Блок: {choice} (доступно {total})\n"
-        f"Старт с: №{start_item['num']} (следующая после №{veto_num})\n"
-        f"Сдвиг: {shift} шагов\n"
-        f"Номер задачи: {chosen['num']}\n"
-        f"Вето: {veto_list}"
-    )
-
-    keyboard = [[InlineKeyboardButton("🚫 Вето", callback_data=f"veto_{chosen['num']}")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await query.edit_message_text(
-        f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}",
-        reply_markup=reply_markup
-    )
+    await query.message.reply_text("Отлично, пошла делать! 💪")
 
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -243,13 +189,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
 def main():
-    TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
+    TOKEN = "ВСТАВЬ_СЮДА_ТОКЕН"
     
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
-    app.add_handler(CallbackQueryHandler(veto, pattern="^veto_"))
+    app.add_handler(CallbackQueryHandler(skip, pattern="^skip_"))
+    app.add_handler(CallbackQueryHandler(take, pattern="^take_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Бот запущен...")
