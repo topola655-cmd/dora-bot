@@ -54,53 +54,9 @@ def get_roulette_items():
         print(f"Ошибка чтения файла: {e}")
     return items
 
-# --- СТАРТ ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['🎲 Рулетка']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(
-        "Привет! Я Дора. Нажми «🎲 Рулетка», чтобы выбрать дело.",
-        reply_markup=reply_markup
-    )
-
-# --- ВЫБОР ФИЛЬТРА ---
-async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['veto_list'] = []
-    context.user_data['base_time'] = None
-    context.user_data['current_block'] = None
-
-    keyboard = [
-        [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
-        [InlineKeyboardButton("На дела", callback_data="spin_дела"), InlineKeyboardButton("На отдых", callback_data="spin_отдых")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
-
-# --- ЛОГИКА ВРАЩЕНИЯ ---
-async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    # Убираем кнопки у предыдущего сообщения (если это был Пропустить)
-    if query.data.startswith("skip_"):
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        choice = context.user_data.get('current_block')
-    else:
-        choice = query.data.replace("spin_", "")
-    
-    # Инициализация при первом запуске
-    if context.user_data.get('base_time') is None:
-        now = query.message.date + datetime.timedelta(hours=4)
-        context.user_data['base_time'] = now.hour + now.minute
-        context.user_data['current_block'] = choice
-        context.user_data['veto_list'] = []
-        context.user_data['last_index'] = None
-    else:
-        choice = context.user_data['current_block']
-    
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ (Выдача задачи) ---
+async def do_spin(query, context):
+    choice = context.user_data['current_block']
     base_seed = context.user_data['base_time']
     veto_list = context.user_data.get('veto_list', [])
     
@@ -138,40 +94,80 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Пропущено: {veto_list}"
     )
 
-    # Кнопки Беру и Пропустить
     keyboard = [[
         InlineKeyboardButton("✅ Беру", callback_data=f"take_{chosen['num']}"),
         InlineKeyboardButton("⏭ Пропустить", callback_data=f"skip_{chosen['num']}")
     ]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Отправляем НОВОЕ сообщение
     await query.message.reply_text(
         f"🎲 №{chosen['num']} — {chosen['text']}{debug_text}",
         reply_markup=reply_markup
     )
 
-# --- ОБРАБОТКА КНОПКИ ПРОПУСТИТЬ ---
+# --- СТАРТ ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [['🎲 Рулетка']]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    await update.message.reply_text(
+        "Привет! Я Дора. Нажми «🎲 Рулетка», чтобы выбрать дело.",
+        reply_markup=reply_markup
+    )
+
+# --- ВЫБОР ФИЛЬТРА ---
+async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['veto_list'] = []
+    context.user_data['base_time'] = None
+    context.user_data['current_block'] = None
+    context.user_data['last_index'] = None
+
+    keyboard = [
+        [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
+        [InlineKeyboardButton("На дела", callback_data="spin_дела"), InlineKeyboardButton("На отдых", callback_data="spin_отдых")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
+
+# --- ПЕРВЫЙ ЗАПУСК ---
+async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    choice = query.data.replace("spin_", "")
+    
+    if context.user_data.get('base_time') is None:
+        now = query.message.date + datetime.timedelta(hours=4)
+        context.user_data['base_time'] = now.hour + now.minute
+        context.user_data['current_block'] = choice
+        context.user_data['veto_list'] = []
+        context.user_data['last_index'] = None
+    
+    await do_spin(query, context)
+
+# --- ОБРАБОТКА ПРОПУСТИТЬ ---
 async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     skip_num = int(query.data.replace("skip_", ""))
     
+    # Убираем кнопки у старого сообщения
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    
     if 'veto_list' not in context.user_data:
         context.user_data['veto_list'] = []
     context.user_data['veto_list'].append(skip_num)
     
-    # Передаем управление в spin, передавая callback_data
-    query.data = f"skip_{skip_num}" 
-    await spin(update, context)
+    await do_spin(query, context)
 
-# --- ОБРАБОТКА КНОПКИ БЕРУ ---
+# --- ОБРАБОТКА БЕРУ ---
 async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # Убираем кнопки у текущего сообщения
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
