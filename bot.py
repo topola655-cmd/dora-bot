@@ -189,7 +189,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
 def main():
-    TOKEN = "ВСТАВЬ_СЮДА_ТОКЕН"
+    TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
     
     app = Application.builder().token(TOKEN).build()
 
