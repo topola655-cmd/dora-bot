@@ -1,6 +1,8 @@
 import logging
 import datetime
 import os
+import base64
+import requests
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
@@ -201,6 +203,53 @@ async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Хорошо, отменила.")
 
+# --- ФУНКЦИЯ СОХРАНЕНИЯ В GITHUB ---
+async def save_to_github(text):
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token:
+        return False, "Токен не найден"
+        
+    repo = "topola655-cmd/dora-bot"
+    path = "inbox.txt"
+    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # 1. Проверяем, существует ли файл и получаем его содержимое
+    response = requests.get(url, headers=headers)
+    
+    if response.status_code == 200:
+        content_data = response.json()
+        sha = content_data['sha']
+        current_content = base64.b64decode(content_data['content']).decode('utf-8')
+    elif response.status_code == 404:
+        sha = None
+        current_content = ""
+    else:
+        return False, f"Ошибка API: {response.status_code}"
+        
+    # 2. Добавляем новый текст
+    new_content = current_content + text + "\n"
+    encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+    
+    # 3. Отправляем обновленный файл
+    data = {
+        "message": "Добавлена задача в Инбокс",
+        "content": encoded_content
+    }
+    if sha:
+        data["sha"] = sha
+        
+    response = requests.put(url, headers=headers, json=data)
+    
+    if response.status_code in [200, 201]:
+        return True, "Успешно"
+    else:
+        return False, f"Ошибка сохранения: {response.text}"
+
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
@@ -212,20 +261,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # Если мы в режиме Инбокса
         if context.user_data.get('mode') == 'inbox':
-            # Сохраняем текст в файл
-            try:
-                with open('inbox.txt', 'a', encoding='utf-8') as f:
-                    f.write(update.message.text + '\n')
+            success, message = await save_to_github(update.message.text)
+            if success:
                 await update.message.reply_text("Записала в Инбокс ✅")
-            except Exception as e:
-                await update.message.reply_text("Ошибка при записи в файл.")
+            else:
+                await update.message.reply_text(f"Ошибка: {message}")
             context.user_data['mode'] = None
         else:
             await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
 def main():
-    TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
-    
+    TOKEN = os.environ.get('BOT_TOKEN')
+    if not TOKEN:
+        print("Ошибка: BOT_TOKEN не найден в переменных окружения!")
+        return
+        
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
