@@ -8,7 +8,6 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- ЧТЕНИЕ ФАЙЛА РУЛЕТКИ ---
 def get_roulette_items():
     items = []
     file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
@@ -55,7 +54,6 @@ def get_roulette_items():
         print(f"Ошибка чтения файла: {e}")
     return items
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ РУЛЕТКИ ---
 async def do_spin(query, context):
     choice = context.user_data['current_block']
     base_seed = context.user_data['base_time']
@@ -106,18 +104,14 @@ async def do_spin(query, context):
         reply_markup=reply_markup
     )
 
-# --- СТАРТ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ['🎲 Рулетка', '📥 Инбокс']
-    ]
+    keyboard = [['🎲 Рулетка', '📥 Инбокс']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
         "Привет! Я Дора. Выбирай, что будем делать.",
         reply_markup=reply_markup
     )
 
-# --- РУЛЕТКА: ВЫБОР ФИЛЬТРА ---
 async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mode'] = 'roulette'
     context.user_data['veto_list'] = []
@@ -132,7 +126,6 @@ async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
 
-# --- РУЛЕТКА: ПЕРВЫЙ ЗАПУСК ---
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -148,7 +141,6 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await do_spin(query, context)
 
-# --- РУЛЕТКА: ПРОПУСТИТЬ ---
 async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -166,7 +158,6 @@ async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await do_spin(query, context)
 
-# --- РУЛЕТКА: БЕРУ ---
 async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -178,7 +169,6 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Отлично, пошла делать! 💪")
 
-# --- ИНБОКС: ГЛАВНОЕ МЕНЮ ---
 async def inbox_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mode'] = None
     keyboard = [
@@ -188,7 +178,6 @@ async def inbox_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что делаем с Инбоксом?", reply_markup=reply_markup)
 
-# --- ИНБОКС: ДОБАВЛЕНИЕ ---
 async def start_inbox_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -220,7 +209,6 @@ async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Хорошо, отменила.")
 
-# --- ИНБОКС: ПОКАЗАТЬ (ИЗ GITHUB) ---
 async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -266,7 +254,6 @@ async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text(text, reply_markup=reply_markup)
 
-# --- ИНБОКС: УДАЛЕНИЕ (ЗАПРОС НОМЕРОВ) ---
 async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -280,17 +267,17 @@ async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     await query.message.reply_text("Напиши номера задач через запятую (например, 1, 3, 4).")
 
-# --- ИНБОКС: РАЗБОР (ЦИКЛ) ---
 async def start_sorting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-        context.user_data['sort_skip_count'] = 0
+    
+    context.user_data['sort_skip_count'] = 0
     
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
-
+        
     await next_sorting_task(query.message, context)
 
 async def next_sorting_task(message, context):
@@ -337,18 +324,59 @@ async def next_sorting_task(message, context):
         reply_markup=reply_markup
     )
 
-# --- РАЗБОР: ПРОПУСТИТЬ ---
+async def sort_future(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['sort_dest'] = '📅 Будущее'
+    context.user_data['mode'] = 'sort_date'
+    await query.message.reply_text("Напиши дату (и время, если есть).")
+
+async def sort_regular(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['sort_dest'] = '🔁 Регулярные'
+    context.user_data['mode'] = 'sort_rule'
+    await query.message.reply_text("Напиши правило (например, «каждую субботу»).")
+
+async def sort_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['sort_dest'] = '📦 Инкубатор'
+    
+    keyboard = [
+        [InlineKeyboardButton("Шкаф", callback_data="inc_shkaf")],
+        [InlineKeyboardButton("Балкон", callback_data="inc_balkon"), InlineKeyboardButton("Дача", callback_data="inc_dacha")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.reply_text("Куда?", reply_markup=reply_markup)
+
+async def inc_shkaf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['sort_extra'] = 'Шкаф'
+    await save_sorted_task(query.message, context)
+
+async def inc_balkon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['sort_extra'] = 'Балкон'
+    await save_sorted_task(query.message, context)
+
+async def inc_dacha(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['sort_extra'] = 'Дача'
+    await save_sorted_task(query.message, context)
+
 async def sort_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # Увеличиваем счетчик пропущенных
     skip_count = context.user_data.get('sort_skip_count', 0)
     context.user_data['sort_skip_count'] = skip_count + 1
     
     await next_sorting_task(query.message, context)
 
-# --- ФУНКЦИЯ СОХРАНЕНИЯ РАЗОБРАННОЙ ЗАДАЧИ ---
 async def save_sorted_task(message, context):
     task_text = context.user_data.get('sorting_task')
     dest = context.user_data.get('sort_dest')
@@ -364,22 +392,18 @@ async def save_sorted_task(message, context):
     elif dest == '📦 Инкубатор':
         line = f"📦 [{extra}] {task_text}\n"
         
-    # 1. Сохраняем в tasks.txt
     success, msg = await append_to_github("tasks.txt", line)
     
     if success:
-        # 2. Удаляем первую задачу из inbox.txt
         await delete_first_from_inbox()
-        
-        # Показываем красивый вывод
         await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line.strip()}")
         
-        # 3. Сразу переходим к следующей задаче
+        # После сохранения сбрасываем счетчик, так как первая задача удалилась
+        context.user_data['sort_skip_count'] = 0
         await next_sorting_task(message, context)
     else:
         await message.reply_text(f"Ошибка сохранения: {msg}")
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ GITHUB ---
 async def append_to_github(path, text):
     token = os.environ.get('GITHUB_TOKEN')
     if not token: return False, "Токен не найден"
@@ -434,7 +458,6 @@ async def delete_first_from_inbox():
         with open('inbox.txt', 'w', encoding='utf-8') as f:
             f.write(new_content)
 
-# --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
@@ -455,7 +478,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         elif mode == 'delete_inbox':
             try:
-                # Разбиваем строку по запятым, убираем пробелы, превращаем в числа
                 parts = [int(p.strip()) for p in update.message.text.split(',') if p.strip().isdigit()]
                 if not parts:
                     await update.message.reply_text("Не поняла номера. Напиши цифры через запятую (например: 1, 3).")
@@ -466,7 +488,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text(f"Задачи {', '.join(map(str, parts))} удалены ✅")
                 else:
                     await update.message.reply_text(f"Ошибка: {msg}")
-            except Exception as e:
+            except Exception:
                 await update.message.reply_text("Ошибка при удалении. Проверь номера.")
             context.user_data['mode'] = None
             
@@ -498,7 +520,6 @@ async def delete_multiple_from_github(task_numbers):
     content = base64.b64decode(data['content']).decode('utf-8')
     lines = [l.strip() for l in content.split('\n') if l.strip()]
     
-    # Сортируем номера по убыванию, чтобы удаление не сдвигало индексы
     for num in sorted(task_numbers, reverse=True):
         if 1 <= num <= len(lines):
             del lines[num - 1]
