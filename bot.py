@@ -14,7 +14,6 @@ def get_roulette_items():
     file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
     
     if not os.path.exists(file_name):
-        print("Файл не найден")
         return items
 
     try:
@@ -189,7 +188,7 @@ async def inbox_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что делаем с Инбоксом?", reply_markup=reply_markup)
 
-# --- ИНБОКС: НАЧАЛО ДОБАВЛЕНИЯ ---
+# --- ИНБОКС: ДОБАВЛЕНИЕ ---
 async def start_inbox_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -208,7 +207,6 @@ async def start_inbox_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# --- ИНБОКС: ОТМЕНА ---
 async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -222,7 +220,6 @@ async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Хорошо, отменила.")
 
-# --- ИНБОКС: ПОКАЗАТЬ ---
 # --- ИНБОКС: ПОКАЗАТЬ (ИЗ GITHUB) ---
 async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -264,12 +261,12 @@ async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i, line in enumerate(lines, 1):
         text += f"{i}. {line}\n"
         
-    keyboard = [[InlineKeyboardButton("🗑 Удалить задачу", callback_data="delete_task_prompt")]]
+    keyboard = [[InlineKeyboardButton("🗑 Удалить задачи", callback_data="delete_task_prompt")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
         
     await query.message.reply_text(text, reply_markup=reply_markup)
 
-# --- ИНБОКС: УДАЛЕНИЕ (ЗАПРОС НОМЕРА) ---
+# --- ИНБОКС: УДАЛЕНИЕ (ЗАПРОС НОМЕРОВ) ---
 async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -281,9 +278,9 @@ async def delete_task_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception:
         pass
         
-    await query.message.reply_text("Напиши номер задачи, которую нужно удалить.")
+    await query.message.reply_text("Напиши номера задач через запятую (например, 1, 3, 4).")
 
-# --- ИНБОКС: РАЗБОР ---
+# --- ИНБОКС: РАЗБОР (ЦИКЛ) ---
 async def start_sorting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -293,82 +290,127 @@ async def start_sorting(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    if not os.path.exists('inbox.txt'):
-        await query.message.reply_text("Инбокс пуст, нечего разбирать.")
-        return
-        
-    with open('inbox.txt', 'r', encoding='utf-8') as f:
-        lines = [line.strip() for line in f.readlines() if line.strip()]
-        
-    if not lines:
-        await query.message.reply_text("Инбокс пуст, нечего разбирать.")
-        return
+    await next_sorting_task(query.message, context)
+
+async def next_sorting_task(message, context):
+    token = os.environ.get('GITHUB_TOKEN')
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     
-    # Берем первую задачу
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        await message.reply_text("Инбокс пуст или ошибка доступа.")
+        context.user_data['mode'] = None
+        return
+        
+    content_data = response.json()
+    current_content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = [line.strip() for line in current_content.split('\n') if line.strip()]
+    
+    if not lines:
+        await message.reply_text("Инбокс пуст! Все разобрали. ✅")
+        context.user_data['mode'] = None
+        return
+        
     context.user_data['sorting_task'] = lines[0]
     context.user_data['mode'] = 'sorting'
     
     keyboard = [
         [InlineKeyboardButton("📅 Будущее", callback_data="sort_future")],
-        [InlineKeyboardButton("🔁 Регулярные", callback_data="sort_regular"), InlineKeyboardButton("📦 Инкубатор", callback_data="sort_incubator")]
+        [InlineKeyboardButton("🔁 Регулярные", callback_data="sort_regular"), InlineKeyboardButton("📦 Инкубатор", callback_data="sort_incubator")],
+        [InlineKeyboardButton("⏭ Пропустить", callback_data="sort_skip")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.message.reply_text(
+    await message.reply_text(
         f"Разбираем задачу:\n«{lines[0]}»\n\nКуда её?",
         reply_markup=reply_markup
     )
 
-# --- РАЗБОР: ВЫБРАНО БУДУЩЕЕ ---
+# --- РАЗБОР: БУДУЩЕЕ ---
 async def sort_future(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data['sort_dest'] = 'future'
+    context.user_data['sort_dest'] = '📅 Будущее'
     context.user_data['mode'] = 'sort_date'
-    await query.message.reply_text("Напиши дату (например, «7 ноября»).")
+    await query.message.reply_text("Напиши дату (и время, если есть).")
 
-# --- РАЗБОР: ВЫБРАНЫ РЕГУЛЯРНЫЕ ---
+# --- РАЗБОР: РЕГУЛЯРНЫЕ ---
 async def sort_regular(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data['sort_dest'] = 'regular'
+    context.user_data['sort_dest'] = '🔁 Регулярные'
     context.user_data['mode'] = 'sort_rule'
     await query.message.reply_text("Напиши правило (например, «каждую субботу»).")
 
-# --- РАЗБОР: ВЫБРАН ИНКУБАТОР ---
+# --- РАЗБОР: ИНКУБАТОР ---
 async def sort_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data['sort_dest'] = 'incubator'
+    context.user_data['sort_dest'] = '📦 Инкубатор'
     
     keyboard = [
         [InlineKeyboardButton("Шкаф", callback_data="inc_shkaf")],
         [InlineKeyboardButton("Балкон", callback_data="inc_balkon"), InlineKeyboardButton("Дача", callback_data="inc_dacha")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.message.reply_text("В какой шкаф?", reply_markup=reply_markup)
+    await query.message.reply_text("Куда?", reply_markup=reply_markup)
 
-# --- РАЗБОР: ВЫБРАН ШКАФ ИНКУБАТОРА ---
+# --- РАЗБОР: ИНКУБАТОР - ВЫБОР МЕСТА ---
 async def inc_shkaf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data['sort_extra'] = 'Шкаф'
-    await save_sorted_task(query, context)
+    await save_sorted_task(query.message, context)
 
 async def inc_balkon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data['sort_extra'] = 'Балкон'
-    await save_sorted_task(query, context)
+    await save_sorted_task(query.message, context)
 
 async def inc_dacha(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     context.user_data['sort_extra'] = 'Дача'
-    await save_sorted_task(query, context)
+    await save_sorted_task(query.message, context)
+
+# --- РАЗБОР: ПРОПУСТИТЬ ---
+async def sort_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # Просто удаляем первую задачу из инбокса и добавляем в конец
+    token = os.environ.get('GITHUB_TOKEN')
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        content_data = response.json()
+        sha = content_data['sha']
+        current_content = base64.b64decode(content_data['content']).decode('utf-8')
+        lines = [line.strip() for line in current_content.split('\n') if line.strip()]
+        
+        if lines:
+            # Перемещаем первую задачу в конец
+            first_task = lines.pop(0)
+            lines.append(first_task)
+            new_content = "\n".join(lines) + "\n"
+            
+            encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+            data = {"message": "Задача пропущена", "content": encoded_content, "sha": sha}
+            requests.put(url, headers=headers, json=data)
+            
+            with open('inbox.txt', 'w', encoding='utf-8') as f:
+                f.write(new_content)
+    
+    await next_sorting_task(query.message, context)
 
 # --- ФУНКЦИЯ СОХРАНЕНИЯ РАЗОБРАННОЙ ЗАДАЧИ ---
-async def save_sorted_task(query, context):
+async def save_sorted_task(message, context):
     task_text = context.user_data.get('sorting_task')
     dest = context.user_data.get('sort_dest')
     extra = context.user_data.get('sort_extra', '')
@@ -376,29 +418,32 @@ async def save_sorted_task(query, context):
     if not task_text:
         return
         
-    # Формируем строку для tasks.txt
-    if dest == 'future':
+    if dest == '📅 Будущее':
         line = f"📅 {task_text} ({extra})\n"
-    elif dest == 'regular':
+    elif dest == '🔁 Регулярные':
         line = f"🔁 {task_text} ({extra})\n"
-    elif dest == 'incubator':
+    elif dest == '📦 Инкубатор':
         line = f"📦 [{extra}] {task_text}\n"
         
-    # Сохраняем в tasks.txt (через GitHub)
+    # 1. Сохраняем в tasks.txt
     success, msg = await append_to_github("tasks.txt", line)
     
     if success:
-        # Удаляем первую задачу из inbox.txt (через GitHub)
+        # 2. Удаляем первую задачу из inbox.txt
         await delete_first_from_inbox()
-        await query.message.reply_text(f"Задача отправлена в {dest}. ✅")
+        
+        # Показываем красивый вывод
+        await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line.strip()}")
+        
+        # 3. Сразу переходим к следующей задаче
+        await next_sorting_task(message, context)
     else:
-        await query.message.reply_text(f"Ошибка сохранения: {msg}")
+        await message.reply_text(f"Ошибка сохранения: {msg}")
 
-# --- ФУНКЦИЯ ДОБАВЛЕНИЯ В ФАЙЛ НА GITHUB ---
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ GITHUB ---
 async def append_to_github(path, text):
     token = os.environ.get('GITHUB_TOKEN')
-    if not token:
-        return False, "Токен не найден"
+    if not token: return False, "Токен не найден"
         
     repo = "topola655-cmd/dora-bot"
     url = f"https://api.github.com/repos/{repo}/contents/{path}"
@@ -426,35 +471,27 @@ async def append_to_github(path, text):
     response = requests.put(url, headers=headers, json=data)
     return response.status_code in [200, 201], "OK"
 
-# --- ФУНКЦИЯ УДАЛЕНИЯ ПЕРВОЙ ЗАДАЧИ ИЗ ИНБОКСА ---
 async def delete_first_from_inbox():
     token = os.environ.get('GITHUB_TOKEN')
-    if not token:
-        return
-        
     repo = "topola655-cmd/dora-bot"
-    path = "inbox.txt"
-    url = f"https://api.github.com/repos/{repo}/contents/{path}"
+    url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     
     response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        return
+    if response.status_code != 200: return
         
     content_data = response.json()
     sha = content_data['sha']
     current_content = base64.b64decode(content_data['content']).decode('utf-8')
-    
     lines = [line.strip() for line in current_content.split('\n') if line.strip()]
+    
     if lines:
-        del lines[0] # Удаляем первую задачу
+        del lines[0] 
         new_content = "\n".join(lines) + "\n" if lines else ""
-        
         encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
         data = {"message": "Удалена разобранная задача", "content": encoded_content, "sha": sha}
         requests.put(url, headers=headers, json=data)
         
-        # Обновляем локальный файл
         with open('inbox.txt', 'w', encoding='utf-8') as f:
             f.write(new_content)
 
@@ -479,47 +516,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         elif mode == 'delete_inbox':
             try:
-                task_num = int(update.message.text.strip())
-                success, message = await delete_task_from_github(task_num)
+                # Разбиваем строку по запятым, убираем пробелы, превращаем в числа
+                parts = [int(p.strip()) for p in update.message.text.split(',') if p.strip().isdigit()]
+                if not parts:
+                    await update.message.reply_text("Не поняла номера. Напиши цифры через запятую (например: 1, 3).")
+                    return
+                    
+                success, msg = await delete_multiple_from_github(parts)
                 if success:
-                    await update.message.reply_text("Задача удалена ✅")
+                    await update.message.reply_text(f"Задачи {', '.join(map(str, parts))} удалены ✅")
                 else:
-                    await update.message.reply_text(f"Ошибка: {message}")
-            except ValueError:
-                await update.message.reply_text("Напиши число.")
+                    await update.message.reply_text(f"Ошибка: {msg}")
+            except Exception as e:
+                await update.message.reply_text("Ошибка при удалении. Проверь номера.")
             context.user_data['mode'] = None
             
         elif mode == 'sort_date':
             context.user_data['sort_extra'] = update.message.text
-            # Сохраняем задачу (вызовем функцию сохранения)
-            class FakeQuery: # Заглушка, чтобы передать в функцию
-                async def answer(self): pass
-                class Message:
-                    async def reply_text(self, text, **kwargs): await update.message.reply_text(text, **kwargs)
-                message = Message()
-            await save_sorted_task(FakeQuery(), context)
+            await save_sorted_task(update.message, context)
             context.user_data['mode'] = None
             
         elif mode == 'sort_rule':
             context.user_data['sort_extra'] = update.message.text
-            class FakeQuery:
-                async def answer(self): pass
-                class Message:
-                    async def reply_text(self, text, **kwargs): await update.message.reply_text(text, **kwargs)
-                message = Message()
-            await save_sorted_task(FakeQuery(), context)
+            await save_sorted_task(update.message, context)
             context.user_data['mode'] = None
             
         else:
             await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
-# --- УДАЛЕНИЕ КОНКРЕТНОЙ ЗАДАЧИ ИЗ ИНБОКСА ---
-async def delete_task_from_github(task_number):
+async def delete_multiple_from_github(task_numbers):
     token = os.environ.get('GITHUB_TOKEN')
     if not token: return False, "Нет токена"
     repo = "topola655-cmd/dora-bot"
     url = f"https://api.github.com/repos/{repo}/contents/inbox.txt"
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
     res = requests.get(url, headers=headers)
     if res.status_code != 200: return False, "Нет файла"
     
@@ -528,14 +559,14 @@ async def delete_task_from_github(task_number):
     content = base64.b64decode(data['content']).decode('utf-8')
     lines = [l.strip() for l in content.split('\n') if l.strip()]
     
-    if task_number < 1 or task_number > len(lines):
-        return False, "Нет такой задачи"
-        
-    del lines[task_number - 1]
+    # Сортируем номера по убыванию, чтобы удаление не сдвигало индексы
+    for num in sorted(task_numbers, reverse=True):
+        if 1 <= num <= len(lines):
+            del lines[num - 1]
+            
     new_content = "\n".join(lines) + "\n" if lines else ""
-    
     encoded = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
-    payload = {"message": f"Удаление задачи {task_number}", "content": encoded, "sha": sha}
+    payload = {"message": f"Удаление задач", "content": encoded, "sha": sha}
     res2 = requests.put(url, headers=headers, json=payload)
     return res2.status_code in [200, 201], "OK"
 
@@ -562,6 +593,7 @@ def main():
     app.add_handler(CallbackQueryHandler(inc_shkaf, pattern="^inc_shkaf"))
     app.add_handler(CallbackQueryHandler(inc_balkon, pattern="^inc_balkon"))
     app.add_handler(CallbackQueryHandler(inc_dacha, pattern="^inc_dacha"))
+    app.add_handler(CallbackQueryHandler(sort_skip, pattern="^sort_skip"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Бот запущен...")
