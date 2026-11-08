@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- ЧТЕНИЕ ФАЙЛА ---
+# --- ЧТЕНИЕ ФАЙЛА РУЛЕТКИ ---
 def get_roulette_items():
     items = []
     file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
@@ -54,7 +54,7 @@ def get_roulette_items():
         print(f"Ошибка чтения файла: {e}")
     return items
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ (Выдача задачи) ---
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ РУЛЕТКИ ---
 async def do_spin(query, context):
     choice = context.user_data['current_block']
     base_seed = context.user_data['base_time']
@@ -107,15 +107,16 @@ async def do_spin(query, context):
 
 # --- СТАРТ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['🎲 Рулетка']]
+    keyboard = [['🎲 Рулетка', '📥 Инбокс']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
-        "Привет! Я Дора. Нажми «🎲 Рулетка», чтобы выбрать дело.",
+        "Привет! Я Дора. Выбирай, что будем делать.",
         reply_markup=reply_markup
     )
 
-# --- ВЫБОР ФИЛЬТРА ---
+# --- РУЛЕТКА: ВЫБОР ФИЛЬТРА ---
 async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['mode'] = 'roulette'
     context.user_data['veto_list'] = []
     context.user_data['base_time'] = None
     context.user_data['current_block'] = None
@@ -128,7 +129,7 @@ async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
 
-# --- ПЕРВЫЙ ЗАПУСК ---
+# --- РУЛЕТКА: ПЕРВЫЙ ЗАПУСК ---
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -144,14 +145,13 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await do_spin(query, context)
 
-# --- ОБРАБОТКА ПРОПУСТИТЬ ---
+# --- РУЛЕТКА: ПРОПУСТИТЬ ---
 async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     skip_num = int(query.data.replace("skip_", ""))
     
-    # Убираем кнопки у старого сообщения
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
@@ -163,7 +163,7 @@ async def skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await do_spin(query, context)
 
-# --- ОБРАБОТКА БЕРУ ---
+# --- РУЛЕТКА: БЕРУ ---
 async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -175,14 +175,53 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Отлично, пошла делать! 💪")
 
+# --- ИНБОКС: НАЧАЛО ---
+async def start_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['mode'] = 'inbox'
+    
+    keyboard = [[InlineKeyboardButton("❌ Отмена", callback_data="cancel_inbox")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "Готова записать задачу в Инбокс.",
+        reply_markup=reply_markup
+    )
+
+# --- ИНБОКС: ОТМЕНА ---
+async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['mode'] = None
+    
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+        
+    await query.message.reply_text("Хорошо, отменила.")
+
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     
     if text in ['🎲 рулетка', 'рулетка', 'крути рулетку', 'дора, крути рулетку']:
         await start_roulette(update, context)
+    elif text == '📥 инбокс':
+        await start_inbox(update, context)
     else:
-        await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
+        # Если мы в режиме Инбокса
+        if context.user_data.get('mode') == 'inbox':
+            # Сохраняем текст в файл
+            try:
+                with open('inbox.txt', 'a', encoding='utf-8') as f:
+                    f.write(update.message.text + '\n')
+                await update.message.reply_text("Записала в Инбокс ✅")
+            except Exception as e:
+                await update.message.reply_text("Ошибка при записи в файл.")
+            context.user_data['mode'] = None
+        else:
+            await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
 
 def main():
     TOKEN = "9264445469:AAEUpRdZ2acRyyDRvh4WAAgzgFqNg9p9ARI"
@@ -193,6 +232,7 @@ def main():
     app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
     app.add_handler(CallbackQueryHandler(skip, pattern="^skip_"))
     app.add_handler(CallbackQueryHandler(take, pattern="^take_"))
+    app.add_handler(CallbackQueryHandler(cancel_inbox, pattern="^cancel_inbox"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Бот запущен...")
