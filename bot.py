@@ -109,7 +109,10 @@ async def do_spin(query, context):
 
 # --- СТАРТ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['🎲 Рулетка', '📥 Инбокс']]
+    keyboard = [
+        ['🎲 Рулетка', '📥 Инбокс'],
+        ['📋 Показать Инбокс']
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
         "Привет! Я Дора. Выбирай, что будем делать.",
@@ -203,6 +206,28 @@ async def cancel_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await query.message.reply_text("Хорошо, отменила.")
 
+# --- ИНБОКС: ПОКАЗАТЬ ---
+async def show_inbox(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not os.path.exists('inbox.txt'):
+        await update.message.reply_text("Инбокс пока пуст.")
+        return
+        
+    try:
+        with open('inbox.txt', 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f.readlines() if line.strip()]
+            
+        if not lines:
+            await update.message.reply_text("Инбокс пока пуст.")
+            return
+            
+        text = "📋 Твой Инбокс:\n\n"
+        for i, line in enumerate(lines, 1):
+            text += f"{i}. {line}\n"
+            
+        await update.message.reply_text(text)
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка при чтении Инбокса: {e}")
+
 # --- ФУНКЦИЯ СОХРАНЕНИЯ В GITHUB ---
 async def save_to_github(text):
     token = os.environ.get('GITHUB_TOKEN')
@@ -218,7 +243,6 @@ async def save_to_github(text):
         "Accept": "application/vnd.github.v3+json"
     }
     
-    # 1. Проверяем, существует ли файл и получаем его содержимое
     response = requests.get(url, headers=headers)
     
     if response.status_code == 200:
@@ -231,11 +255,9 @@ async def save_to_github(text):
     else:
         return False, f"Ошибка API: {response.status_code}"
         
-    # 2. Добавляем новый текст
     new_content = current_content + text + "\n"
     encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
     
-    # 3. Отправляем обновленный файл
     data = {
         "message": "Добавлена задача в Инбокс",
         "content": encoded_content
@@ -246,6 +268,12 @@ async def save_to_github(text):
     response = requests.put(url, headers=headers, json=data)
     
     if response.status_code in [200, 201]:
+        # После сохранения в GitHub, обновляем локальный файл
+        try:
+            with open('inbox.txt', 'w', encoding='utf-8') as f:
+                f.write(new_content)
+        except Exception:
+            pass
         return True, "Успешно"
     else:
         return False, f"Ошибка сохранения: {response.text}"
@@ -258,8 +286,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_roulette(update, context)
     elif text == '📥 инбокс':
         await start_inbox(update, context)
+    elif text in ['📋 показать инбокс', 'показать инбокс']:
+        await show_inbox(update, context)
     else:
-        # Если мы в режиме Инбокса
         if context.user_data.get('mode') == 'inbox':
             success, message = await save_to_github(update.message.text)
             if success:
