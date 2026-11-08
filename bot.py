@@ -378,6 +378,7 @@ async def sort_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await next_sorting_task(query.message, context)
 
 async def save_sorted_task(message, context):
+    # Достаем задачу и данные из памяти
     task_text = context.user_data.get('sorting_task')
     dest = context.user_data.get('sort_dest')
     extra = context.user_data.get('sort_extra', '')
@@ -385,6 +386,7 @@ async def save_sorted_task(message, context):
     if not task_text:
         return
         
+    # Формируем строчку для файла
     if dest == '📅 Будущее':
         line = f"📅 {task_text} ({extra})\n"
     elif dest == '🔁 Регулярные':
@@ -392,14 +394,20 @@ async def save_sorted_task(message, context):
     elif dest == '📦 Инкубатор':
         line = f"📦 [{extra}] {task_text}\n"
         
+    # Сохраняем в файл на GitHub
     success, msg = await append_to_github("tasks.txt", line)
     
     if success:
+        # Удаляем первую задачу из Инбокса
         await delete_first_from_inbox()
+        
+        # Сбрасываем счетчик пропусков, так как задача изменилась
+        context.user_data['sort_skip_count'] = 0 
+        
+        # Пишем отчет пользователю
         await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line.strip()}")
         
-        # После сохранения сбрасываем счетчик, так как первая задача удалилась
-        context.user_data['sort_skip_count'] = 0
+        # Переходим к следующей задаче
         await next_sorting_task(message, context)
     else:
         await message.reply_text(f"Ошибка сохранения: {msg}")
