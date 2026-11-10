@@ -624,13 +624,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode = context.user_data.get('mode')
         
         if mode == 'inbox':
-            success, message = await append_to_github("inbox.txt", update.message.text + "\n")
-            if success:
-                await update.message.reply_text("Записала в Инбокс ✅")
-                context.user_data['mode'] = None
+            # Разбиваем текст на строки (для списков)
+            lines = update.message.text.split('\n')
+            saved_count = 0
+            
+            for line in lines:
+                clean_line = line.strip()
+                if clean_line:
+                    success, message = await append_to_github("inbox.txt", clean_line + "\n")
+                    if success:
+                        saved_count += 1
+                        
+            if saved_count > 0:
+                await update.message.reply_text(f"Записала в Инбокс {saved_count} задач(и) ✅")
             else:
-                await update.message.reply_text(f"Ошибка: {message}")
+                await update.message.reply_text("Нечего записывать (пустое сообщение).")
                 
+            context.user_data['mode'] = None
+            
         elif mode == 'delete_inbox':
             try:
                 parts = [int(p.strip()) for p in update.message.text.split(',') if p.strip().isdigit()]
