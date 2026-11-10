@@ -107,7 +107,7 @@ async def do_spin(query, context):
     )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [['🎲 Рулетка', '📥 Инбокс']]
+    keyboard = [['🎲 Рулетка', '📥 Инбокс'], ['📋 Задачи']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
         "Привет! Я Дора. Выбирай, что будем делать.",
@@ -410,6 +410,105 @@ async def save_sorted_task(message, context):
     else:
         await message.reply_text(f"Ошибка сохранения: {msg}")
 
+# --- ПРОСМОТР СПИСКОВ ---
+async def show_tasks_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📅 Будущее", callback_data="view_future")],
+        [InlineKeyboardButton("🔁 Регулярные", callback_data="view_regular"), InlineKeyboardButton("📦 Инкубатор", callback_data="view_incubator")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Какой список показать?", reply_markup=reply_markup)
+
+async def view_future(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await show_block_from_github(query, "📅")
+    
+async def view_regular(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await show_block_from_github(query, "🔁")
+
+async def view_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    token = os.environ.get('GITHUB_TOKEN')
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/tasks.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        await query.message.reply_text("Файл задач не найден.")
+        return
+        
+    content_data = response.json()
+    content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = [line.strip() for line in content.split('\n')]
+    
+    shkaf = []
+    balkon = []
+    dacha = []
+    
+    for line in lines:
+        if line.startswith("📦 [Шкаф]"):
+            shkaf.append(line.replace("📦 [Шкаф]", "").strip())
+        elif line.startswith("📦 [Балкон]"):
+            balkon.append(line.replace("📦 [Балкон]", "").strip())
+        elif line.startswith("📦 [Дача]"):
+            dacha.append(line.replace("📦 [Дача]", "").strip())
+            
+    text = "📦 ИНКУБАТОР:\n\n"
+    
+    if shkaf:
+        text += "🗄️ Шкаф:\n"
+        for i, t in enumerate(shkaf, 1):
+            text += f"{i}. {t}\n"
+        text += "\n"
+    if balkon:
+        text += "🌤 Балкон:\n"
+        for i, t in enumerate(balkon, 1):
+            text += f"{i}. {t}\n"
+        text += "\n"
+    if dacha:
+        text += "🏡 Дача:\n"
+        for i, t in enumerate(dacha, 1):
+            text += f"{i}. {t}\n"
+        text += "\n"
+        
+    if not shkaf and not balkon and not dacha:
+        text += "Пока пусто."
+        
+    await query.message.reply_text(text)
+
+async def show_block_from_github(query, emoji):
+    token = os.environ.get('GITHUB_TOKEN')
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/tasks.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        await query.message.reply_text("Файл задач не найден.")
+        return
+        
+    content_data = response.json()
+    content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = [line.strip() for line in content.split('\n')]
+    
+    tasks = [l for l in lines if l.startswith(emoji)]
+    
+    if not tasks:
+        await query.message.reply_text("Тут пока пусто.")
+        return
+        
+    text = "Список задач:\n\n"
+    for t in tasks:
+        text += f"{t}\n"
+        
+    await query.message.reply_text(text)
+
 # --- GITHUB ФУНКЦИИ ---
 async def append_to_github(path, text, block_name=None):
     token = os.environ.get('GITHUB_TOKEN')
@@ -517,6 +616,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await start_roulette(update, context)
     elif text == '📥 инбокс':
         await inbox_menu(update, context)
+    elif text == '📋 задачи':
+        await show_tasks_menu(update, context)
     else:
         mode = context.user_data.get('mode')
         
@@ -582,6 +683,9 @@ def main():
     app.add_handler(CallbackQueryHandler(inc_balkon, pattern="^inc_balkon"))
     app.add_handler(CallbackQueryHandler(inc_dacha, pattern="^inc_dacha"))
     app.add_handler(CallbackQueryHandler(sort_skip, pattern="^sort_skip"))
+    app.add_handler(CallbackQueryHandler(view_future, pattern="^view_future"))
+    app.add_handler(CallbackQueryHandler(view_regular, pattern="^view_regular"))
+    app.add_handler(CallbackQueryHandler(view_incubator, pattern="^view_incubator"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Бот запущен...")
