@@ -459,7 +459,7 @@ async def view_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif line.startswith("📦 [Дача]"):
             dacha.append(line.replace("📦 [Дача]", "").strip())
             
-    text = "📦 ИНКУБАТОР:\n\n"
+    text = ""
     
     if shkaf:
         text += "🗄️ Шкаф:\n"
@@ -503,7 +503,7 @@ async def show_block_from_github(query, emoji):
         await query.message.reply_text("Тут пока пусто.")
         return
         
-    text = "Список задач:\n\n"
+    text = ""
     for t in tasks:
         text += f"{t}\n"
         
