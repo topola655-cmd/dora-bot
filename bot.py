@@ -390,27 +390,28 @@ async def save_sorted_task(message, context):
         return
         
     if dest == '📅 Будущее':
-        line = f"📅 {task_text} ({extra})\n"
+        line = f"📅 {task_text} ({extra})"
+        block_header = "📅 БУДУЩЕЕ:"
     elif dest == '🔁 Регулярные':
-        line = f"🔁 {task_text} ({extra})\n"
+        line = f"🔁 {task_text} ({extra})"
+        block_header = "🔁 РЕГУЛЯРНЫЕ:"
     elif dest == '📦 Инкубатор':
-        line = f"📦 [{extra}] {task_text}\n"
+        line = f"📦 [{extra}] {task_text}"
+        block_header = "📦 ИНКУБАТОР:"
         
-    success, msg = await append_to_github("tasks.txt", line)
+    success, msg = await append_to_github("tasks.txt", line + "\n", block_name=block_header)
     
     if success:
-        # Удаляем именно ту задачу, которую разобрали
         await delete_first_from_inbox(task_text)
         
-        await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line.strip()}")
+        await message.reply_text(f"Задача отправлена в {dest} ✅\n\n{line}")
         
-        # Переходим к следующей задаче
         await next_sorting_task(message, context)
     else:
         await message.reply_text(f"Ошибка сохранения: {msg}")
 
 # --- GITHUB ФУНКЦИИ ---
-async def append_to_github(path, text):
+async def append_to_github(path, text, block_name=None):
     token = os.environ.get('GITHUB_TOKEN')
     if not token: return False, "Токен не найден"
         
@@ -430,7 +431,25 @@ async def append_to_github(path, text):
     else:
         return False, f"Ошибка API: {response.status_code}"
         
-    new_content = current_content + text
+    if block_name:
+        lines = current_content.split('\n')
+        header_index = -1
+        
+        for i, line in enumerate(lines):
+            if block_name in line:
+                header_index = i
+                break
+                
+        if header_index != -1:
+            lines.insert(header_index + 1, text.strip())
+        else:
+            lines.append(block_name)
+            lines.append(text.strip())
+            
+        new_content = "\n".join(lines)
+    else:
+        new_content = current_content + text
+
     encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
     
     data = {"message": f"Обновление {path}", "content": encoded_content}
@@ -454,7 +473,6 @@ async def delete_first_from_inbox(task_text_to_delete):
     current_content = base64.b64decode(content_data['content']).decode('utf-8')
     lines = [line.strip() for line in current_content.split('\n') if line.strip()]
     
-    # Ищем задачу по тексту и удаляем именно её
     if task_text_to_delete in lines:
         lines.remove(task_text_to_delete)
         
