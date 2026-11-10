@@ -459,7 +459,7 @@ async def view_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif line.startswith("📦 [Дача]"):
             dacha.append(line.replace("📦 [Дача]", "").strip())
             
-    text = ""
+    text = "📦 ИНКУБАТОР:\n\n"
     
     if shkaf:
         text += "🗄️ Шкаф:\n"
@@ -480,7 +480,7 @@ async def view_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not shkaf and not balkon and not dacha:
         text += "Пока пусто."
         
-    await query.message.reply_text(text)
+    await query.message.reply_text(text + "\n\u200b")
 
 async def show_block_from_github(query, emoji):
     token = os.environ.get('GITHUB_TOKEN')
@@ -507,7 +507,7 @@ async def show_block_from_github(query, emoji):
     for t in tasks:
         text += f"{t}\n"
         
-    await query.message.reply_text(text)
+    await query.message.reply_text(text + "\n\u200b")
 
 # --- GITHUB ФУНКЦИИ ---
 async def append_to_github(path, text, block_name=None):
