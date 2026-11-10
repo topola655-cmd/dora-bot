@@ -480,7 +480,7 @@ async def view_incubator(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not shkaf and not balkon and not dacha:
         text += "Пока пусто."
         
-    await query.message.reply_text(text + "\n\u200b")
+    await query.message.reply_text(text.strip())
 
 async def show_block_from_github(query, emoji):
     token = os.environ.get('GITHUB_TOKEN')
@@ -504,10 +504,12 @@ async def show_block_from_github(query, emoji):
         return
         
     text = ""
-    for t in tasks:
+    for i, t in enumerate(tasks):
         text += f"{t}\n"
+        if i == 0:
+            text += "\n"
         
-    await query.message.reply_text(text + "\n\u200b")
+    await query.message.reply_text(text.strip())
 
 # --- GITHUB ФУНКЦИИ ---
 async def append_to_github(path, text, block_name=None):
