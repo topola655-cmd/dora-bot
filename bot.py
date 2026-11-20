@@ -222,7 +222,6 @@ async def roulette_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for item in items:
         text += f"{item['num']}. {item['text']}\n"
         
-    # Разбиваем на части, если текст слишком длинный (Telegram не любит > 4096 символов)
     if len(text) > 4000:
         text = text[:4000] + "...\n(Слишком много задач, напиши номер вслепую)"
         
@@ -685,7 +684,6 @@ async def add_roulette_task_to_github(block, task_text):
     content = base64.b64decode(content_data['content']).decode('utf-8')
     lines = content.split('\n')
     
-    # Находим максимальный номер
     max_num = 0
     for line in lines:
         match = re.match(r'^(\d+)\.', line.strip())
@@ -694,24 +692,21 @@ async def add_roulette_task_to_github(block, task_text):
             
     new_num = max_num + 1
     
-    # Ищем, куда вставить
     block_header = "🧹 Дела" if block == "дела" else "🎈 Отдых"
     insert_index = -1
     
-    # Если добавляем в "Отдых", ищем заголовок Отдых
     if block == "отдых":
         for i, line in enumerate(lines):
             if "Отдых" in line:
                 insert_index = i + 1
                 break
     else:
-        # Если в "Дела", ищем конец блока Дела (перед Отдыхом)
         for i, line in enumerate(lines):
             if "Отдых" in line:
                 insert_index = i
                 break
         if insert_index == -1:
-            insert_index = len(lines) # Если нет Отдыха, пишем в конец
+            insert_index = len(lines)
             
     new_task = f"{new_num}. {task_text}"
     
@@ -745,7 +740,6 @@ async def delete_roulette_task_from_github(task_num):
     content = base64.b64decode(content_data['content']).decode('utf-8')
     lines = content.split('\n')
     
-    # Находим строку с нужным номером и удаляем
     deleted = False
     for i, line in enumerate(lines):
         match = re.match(r'^(\d+)\.', line.strip())
@@ -757,7 +751,6 @@ async def delete_roulette_task_from_github(task_num):
     if not deleted:
         return False, "Задача с таким номером не найдена"
         
-    # ПЕРЕСЧЕТ НУМЕРАЦИИ
     new_lines = []
     current_num = 1
     for line in lines:
@@ -768,7 +761,6 @@ async def delete_roulette_task_from_github(task_num):
             
         match = re.match(r'^(\d+)\.(.*)$', clean_line)
         if match:
-            # Это задача, пересчитываем номер
             new_lines.append(f"{current_num}.{match.group(2)}")
             current_num += 1
         else:
@@ -840,4 +832,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['mode'] = None
             
         elif mode == 'add_roulette':
-            block = context.user_data.get('add_block
+            block = context.user_data.get('add_block')
+            if block:
+                success, msg = await add_roulette_task_to_github(block, update.message.text)
+                if success:
+                    await update.message.reply_text(f"Задача добавлена в блок «{block.capitalize()}» ✅")
+                else:
+                    await update.message.reply_text(f"Ошибка: {msg}")
+            context.user_data['mode'] = None
+            
+        elif mode == 'delete_roulette':
+            try:
+                task_num = int(update.message.text.strip())
+                success, msg = await delete_roulette_task_from_github(task_num)
+                if success:
+                    await update.message.reply_text(f"Задача {task_num} удалена из Рулетки ✅")
+                else:
+                    await update.message.reply_text(f"Ошибка: {msg}")
+            except ValueError:
+                await update.message.reply_text("Пожалуйста, напиши число (номер задачи).")
+            context.user_data['mode'] = None
+            
+        else:
+            await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
+
+# --- ЗАПУСК ---
+def main():
+    TOKEN = os.environ.get('BOT_TOKEN')
+    if not TOKEN:
+        print("Ошибка: BOT_TOKEN не найден!")
+        return
+        
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
+    app.add_handler(CallbackQueryHandler(skip, pattern="^skip_"))
+    app.add_handler(CallbackQueryHandler(take, pattern="^take_"))
+    app.add_handler(CallbackQueryHandler(roulette_add, pattern="^roulette_add"))
+    app.add_handler(CallbackQueryHandler(roulette_delete, pattern="^roulette_delete"))
+    app.add_handler(CallbackQueryHandler(add_to_block, pattern="^add_to_"))
+    app.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add"))
+    app.add_handler(CallbackQueryHandler(start_inbox_add, pattern="^inbox_add"))
+    app.add_handler(CallbackQueryHandler(show_inbox, pattern="^inbox_show"))
+    app.add_handler(CallbackQueryHandler(start_sorting, pattern="^inbox_sort"))
+    app.add_handler(CallbackQueryHandler(cancel_inbox, pattern="^cancel_inbox"))
+    app.add_handler(CallbackQueryHandler(delete_task_prompt, pattern="^delete_task_prompt"))
+    app.add_handler(CallbackQueryHandler(sort_future, pattern="^sort_future"))
+    app.add_handler(CallbackQueryHandler(sort_regular, pattern="^sort_regular"))
+    app.add_handler(CallbackQueryHandler(sort_incubator, pattern="^sort_incubator"))
+    app.add_handler(CallbackQueryHandler(inc_shkaf, pattern="^inc_shkaf"))
+    app.add_handler(CallbackQueryHandler(inc_balkon, pattern="^inc_balkon"))
+    app.add_handler(CallbackQueryHandler(inc_dacha, pattern="^inc_dacha"))
+    app.add_handler(CallbackQueryHandler(sort_skip, pattern="^sort_skip"))
+    app.add_handler(CallbackQueryHandler(view_future, pattern="^view_future"))
+    app.add_handler(CallbackQueryHandler(view_regular, pattern="^view_regular"))
+    app.add_handler(CallbackQueryHandler(view_incubator, pattern="^view_incubator"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("Бот запущен...")
+    app.run_polling()
+
+if __name__ == '__main__':
+    main()
