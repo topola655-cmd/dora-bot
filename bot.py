@@ -850,4 +850,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_text(f"Ошибка: {msg}")
             except ValueError:
-                await update.message.reply_text("П
+                              await update.message.reply_text("Пожалуйста, напиши число (номер задачи).")
+            context.user_data['mode'] = None
+            
+        else:
+            await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
+
+# --- ЗАПУСК ---
+def main():
+    TOKEN = os.environ.get('BOT_TOKEN')
+    if not TOKEN:
+        print("Ошибка: BOT_TOKEN не найден!")
+        return
+        
+    app = Application.builder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
+    app.add_handler(CallbackQueryHandler(skip, pattern="^skip_"))
+    app.add_handler(CallbackQueryHandler(take, pattern="^take_"))
+    app.add_handler(CallbackQueryHandler(roulette_add, pattern="^roulette_add"))
+    app.add_handler(CallbackQueryHandler(roulette_delete, pattern="^roulette_delete"))
+    app.add_handler(CallbackQueryHandler(add_to_block, pattern="^add_to_"))
+    app.add_handler(CallbackQueryHandler(cancel_add, pattern="^cancel_add"))
+    app.add_handler(CallbackQueryHandler(start_inbox_add, pattern="^inbox_add"))
+    app.add_handler(CallbackQueryHandler(show_inbox, pattern="^inbox_show"))
+    app.add_handler(CallbackQueryHandler(start_sorting, pattern="^inbox_sort"))
+    app.add_handler(CallbackQueryHandler(cancel_inbox, pattern="^cancel_inbox"))
+    app.add_handler(CallbackQueryHandler(delete_task_prompt, pattern="^delete_task_prompt"))
+    app.add_handler(CallbackQueryHandler(sort_future, pattern="^sort_future"))
+    app.add_handler(CallbackQueryHandler(sort_regular, pattern="^sort_regular"))
+    app.add_handler(CallbackQueryHandler(sort_incubator, pattern="^sort_incubator"))
+    app.add_handler(CallbackQueryHandler(inc_shkaf, pattern="^inc_shkaf"))
+    app.add_handler(CallbackQueryHandler(inc_balkon, pattern="^inc_balkon"))
+    app.add_handler(CallbackQueryHandler(inc_dacha, pattern="^inc_dacha"))
+    app.add_handler(CallbackQueryHandler(sort_skip, pattern="^sort_skip"))
+    app.add_handler(CallbackQueryHandler(view_future, pattern="^view_future"))
+    app.add_handler(CallbackQueryHandler(view_regular, pattern="^view_regular"))
+    app.add_handler(CallbackQueryHandler(view_incubator, pattern="^view_incubator"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("Бот запущен...")
+    app.run_polling()
+
+if __name__ == '__main__':
+    main()
