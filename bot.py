@@ -683,15 +683,6 @@ async def add_roulette_task_to_github(block, task_text):
     content = base64.b64decode(content_data['content']).decode('utf-8')
     lines = content.split('\n')
     
-    max_num = 0
-    for line in lines:
-        match = re.match(r'^(\d+)\.', line.strip())
-        if match:
-            max_num = max(max_num, int(match.group(1)))
-            
-    new_num = max_num + 1
-    new_task = f"{new_num}. {task_text}"
-    
     header_dela = -1
     header_otdyh = -1
     
@@ -701,6 +692,8 @@ async def add_roulette_task_to_github(block, task_text):
         elif "Отдых" in line:
             header_otdyh = i
             
+    new_task = f"0. {task_text}"
+    
     if block == "дела":
         if header_otdyh != -1:
             insert_index = header_otdyh
@@ -716,7 +709,22 @@ async def add_roulette_task_to_github(block, task_text):
             insert_index -= 1
         lines.insert(insert_index, new_task)
         
-    new_content = "\n".join(lines)
+    new_lines = []
+    current_num = 1
+    for line in lines:
+        clean_line = line.strip()
+        if not clean_line:
+            new_lines.append(line)
+            continue
+            
+        match = re.match(r'^(\d+)\.(.*)$', clean_line)
+        if match:
+            new_lines.append(f"{current_num}.{match.group(2)}")
+            current_num += 1
+        else:
+            new_lines.append(line)
+            
+    new_content = "\n".join(new_lines)
     encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
     
     data = {"message": f"Добавлена задача в Рулетку ({block})", "content": encoded_content, "sha": sha}
