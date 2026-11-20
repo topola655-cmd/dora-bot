@@ -140,7 +140,6 @@ async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     choice = query.data.replace("spin_", "")
     
-    # Сбрасываем старую сессию и начинаем новую при каждом нажатии
     now = query.message.date + datetime.timedelta(hours=4)
     context.user_data['base_time'] = now.hour + now.minute
     context.user_data['current_block'] = choice
@@ -691,29 +690,31 @@ async def add_roulette_task_to_github(block, task_text):
             max_num = max(max_num, int(match.group(1)))
             
     new_num = max_num + 1
-    
-    block_header = "🧹 Дела" if block == "дела" else "🎈 Отдых"
-    insert_index = -1
-    
-    if block == "отдых":
-        for i, line in enumerate(lines):
-            if "Отдых" in line:
-                insert_index = i + 1
-                break
-    else:
-        for i, line in enumerate(lines):
-            if "Отдых" in line:
-                insert_index = i
-                break
-        if insert_index == -1:
-            insert_index = len(lines)
-            
     new_task = f"{new_num}. {task_text}"
     
-    if insert_index != -1:
+    header_dela = -1
+    header_otdyh = -1
+    
+    for i, line in enumerate(lines):
+        if "Дела" in line:
+            header_dela = i
+        elif "Отдых" in line:
+            header_otdyh = i
+            
+    if block == "дела":
+        if header_otdyh != -1:
+            insert_index = header_otdyh
+            while insert_index > header_dela and not lines[insert_index - 1].strip():
+                insert_index -= 1
+            lines.insert(insert_index, new_task)
+        else:
+            lines.append(new_task)
+            
+    elif block == "отдых":
+        insert_index = len(lines)
+        while insert_index > 0 and not lines[insert_index - 1].strip():
+            insert_index -= 1
         lines.insert(insert_index, new_task)
-    else:
-        lines.append(new_task)
         
     new_content = "\n".join(lines)
     encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
@@ -850,7 +851,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_text(f"Ошибка: {msg}")
             except ValueError:
-                              await update.message.reply_text("Пожалуйста, напиши число (номер задачи).")
+                await update.message.reply_text("Пожалуйста, напиши число (номер задачи).")
             context.user_data['mode'] = None
             
         else:
