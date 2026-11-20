@@ -3,56 +3,61 @@ import datetime
 import os
 import base64
 import requests
+import re
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# --- ЧТЕНИЕ ФАЙЛА РУЛЕТКИ ---
-def get_roulette_items():
-    items = []
-    file_name = 'data.txt' if os.path.exists('data.txt') else 'данные.txt'
+# --- ЧТЕНИЕ ФАЙЛА РУЛЕТКИ С GITHUB ---
+async def get_roulette_items_from_github():
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token: return []
+        
+    repo = "topola655-cmd/dora-bot"
+    file_name = 'data.txt'
+    url = f"https://api.github.com/repos/{repo}/contents/{file_name}"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
     
-    if not os.path.exists(file_name):
-        return items
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        return []
 
-    try:
-        with open(file_name, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+    content_data = response.json()
+    content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = content.split('\n')
             
-        current_block = "all"
-        for line in lines:
-            clean_line = line.strip()
-            if not clean_line:
-                continue
+    items = []
+    current_block = "all"
+    for line in lines:
+        clean_line = line.strip()
+        if not clean_line:
+            continue
+        
+        if "Дела" in clean_line:
+            current_block = "дела"
+            continue
+        elif "Отдых" in clean_line:
+            current_block = "отдых"
+            continue
+        
+        num_str = ""
+        for char in clean_line:
+            if char.isdigit():
+                num_str += char
+            else:
+                break
+        
+        if num_str:
+            task_text = clean_line[len(num_str):].strip()
+            if task_text.startswith('.'):
+                task_text = task_text[1:].strip()
             
-            if "Дела" in clean_line:
-                current_block = "дела"
-                continue
-            elif "Отдых" in clean_line:
-                current_block = "отдых"
-                continue
-            
-            num_str = ""
-            for char in clean_line:
-                if char.isdigit():
-                    num_str += char
-                else:
-                    break
-            
-            if num_str:
-                task_text = clean_line[len(num_str):].strip()
-                if task_text.startswith('.'):
-                    task_text = task_text[1:].strip()
-                
-                items.append({
-                    "num": int(num_str), 
-                    "text": task_text, 
-                    "block": current_block
-                })
-                
-    except Exception as e:
-        print(f"Ошибка чтения файла: {e}")
+            items.append({
+                "num": int(num_str), 
+                "text": task_text, 
+                "block": current_block
+            })
     return items
 
 # --- РУЛЕТКА ---
@@ -61,7 +66,7 @@ async def do_spin(query, context):
     base_seed = context.user_data['base_time']
     veto_list = context.user_data.get('veto_list', [])
     
-    all_items = get_roulette_items()
+    all_items = await get_roulette_items_from_github()
     
     if choice == "all":
         filtered = all_items
@@ -122,11 +127,12 @@ async def start_roulette(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['last_index'] = None
 
     keyboard = [
-        [InlineKeyboardButton("Весь банк", callback_data="spin_all")],
-        [InlineKeyboardButton("На дела", callback_data="spin_дела"), InlineKeyboardButton("На отдых", callback_data="spin_отдых")]
+        [InlineKeyboardButton("🎲 Весь банк", callback_data="spin_all")],
+        [InlineKeyboardButton("🧹 На дела", callback_data="spin_дела"), InlineKeyboardButton("☕ На отдых", callback_data="spin_отдых")],
+        [InlineKeyboardButton("➕ Добавить", callback_data="roulette_add"), InlineKeyboardButton("🗑 Удалить", callback_data="roulette_delete")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Что крутим?", reply_markup=reply_markup)
+    await update.message.reply_text("Что делаем с Рулеткой?", reply_markup=reply_markup)
 
 async def spin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -170,6 +176,57 @@ async def take(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
         
     await query.message.reply_text("Отлично, пошла делать! 💪")
+
+# --- ДОБАВЛЕНИЕ В РУЛЕТКУ ---
+async def roulette_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("🧹 Дела", callback_data="add_to_дела")],
+        [InlineKeyboardButton("☕ Отдых", callback_data="add_to_отдых")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel_add")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.message.reply_text("В какой блок добавить?", reply_markup=reply_markup)
+
+async def add_to_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    block = query.data.replace("add_to_", "")
+    context.user_data['add_block'] = block
+    context.user_data['mode'] = 'add_roulette'
+    
+    await query.message.reply_text(f"Напиши текст задачи для блока «{block.capitalize()}».")
+
+async def cancel_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data['mode'] = None
+    await query.message.reply_text("Хорошо, отменила.")
+
+# --- УДАЛЕНИЕ ИЗ РУЛЕТКИ ---
+async def roulette_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['mode'] = 'delete_roulette'
+    
+    items = await get_roulette_items_from_github()
+    if not items:
+        await query.message.reply_text("Банк пуст.")
+        return
+        
+    text = "Напиши номер задачи для удаления:\n\n"
+    for item in items:
+        text += f"{item['num']}. {item['text']}\n"
+        
+    # Разбиваем на части, если текст слишком длинный (Telegram не любит > 4096 символов)
+    if len(text) > 4000:
+        text = text[:4000] + "...\n(Слишком много задач, напиши номер вслепую)"
+        
+    await query.message.reply_text(text)
 
 # --- ИНБОКС ---
 async def inbox_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -610,6 +667,121 @@ async def delete_multiple_from_github(task_numbers):
     res2 = requests.put(url, headers=headers, json=payload)
     return res2.status_code in [200, 201], "OK"
 
+# --- ФУНКЦИИ ДЛЯ РУЛЕТКИ (ДОБАВЛЕНИЕ/УДАЛЕНИЕ) ---
+async def add_roulette_task_to_github(block, task_text):
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token: return False, "Токен не найден"
+        
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/data.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        return False, "Файл data.txt не найден"
+        
+    content_data = response.json()
+    sha = content_data['sha']
+    content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = content.split('\n')
+    
+    # Находим максимальный номер
+    max_num = 0
+    for line in lines:
+        match = re.match(r'^(\d+)\.', line.strip())
+        if match:
+            max_num = max(max_num, int(match.group(1)))
+            
+    new_num = max_num + 1
+    
+    # Ищем, куда вставить
+    block_header = "🧹 Дела" if block == "дела" else "🎈 Отдых"
+    insert_index = -1
+    
+    # Если добавляем в "Отдых", ищем заголовок Отдых
+    if block == "отдых":
+        for i, line in enumerate(lines):
+            if "Отдых" in line:
+                insert_index = i + 1
+                break
+    else:
+        # Если в "Дела", ищем конец блока Дела (перед Отдыхом)
+        for i, line in enumerate(lines):
+            if "Отдых" in line:
+                insert_index = i
+                break
+        if insert_index == -1:
+            insert_index = len(lines) # Если нет Отдыха, пишем в конец
+            
+    new_task = f"{new_num}. {task_text}"
+    
+    if insert_index != -1:
+        lines.insert(insert_index, new_task)
+    else:
+        lines.append(new_task)
+        
+    new_content = "\n".join(lines)
+    encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+    
+    data = {"message": f"Добавлена задача в Рулетку ({block})", "content": encoded_content, "sha": sha}
+    response = requests.put(url, headers=headers, json=data)
+    
+    return response.status_code in [200, 201], "OK"
+
+async def delete_roulette_task_from_github(task_num):
+    token = os.environ.get('GITHUB_TOKEN')
+    if not token: return False, "Токен не найден"
+        
+    repo = "topola655-cmd/dora-bot"
+    url = f"https://api.github.com/repos/{repo}/contents/data.txt"
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        return False, "Файл data.txt не найден"
+        
+    content_data = response.json()
+    sha = content_data['sha']
+    content = base64.b64decode(content_data['content']).decode('utf-8')
+    lines = content.split('\n')
+    
+    # Находим строку с нужным номером и удаляем
+    deleted = False
+    for i, line in enumerate(lines):
+        match = re.match(r'^(\d+)\.', line.strip())
+        if match and int(match.group(1)) == task_num:
+            del lines[i]
+            deleted = True
+            break
+            
+    if not deleted:
+        return False, "Задача с таким номером не найдена"
+        
+    # ПЕРЕСЧЕТ НУМЕРАЦИИ
+    new_lines = []
+    current_num = 1
+    for line in lines:
+        clean_line = line.strip()
+        if not clean_line:
+            new_lines.append(line)
+            continue
+            
+        match = re.match(r'^(\d+)\.(.*)$', clean_line)
+        if match:
+            # Это задача, пересчитываем номер
+            new_lines.append(f"{current_num}.{match.group(2)}")
+            current_num += 1
+        else:
+            new_lines.append(line)
+            
+    new_content = "\n".join(new_lines)
+    encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+    
+    data = {"message": f"Удалена задача {task_num} из Рулетки", "content": encoded_content, "sha": sha}
+    response = requests.put(url, headers=headers, json=data)
+    
+    return response.status_code in [200, 201], "OK"
+
 # --- ОБРАБОТЧИК ТЕКСТА ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
@@ -624,7 +796,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode = context.user_data.get('mode')
         
         if mode == 'inbox':
-            # Разбиваем текст на строки (для списков)
             lines = update.message.text.split('\n')
             saved_count = 0
             
@@ -668,41 +839,5 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await save_sorted_task(update.message, context)
             context.user_data['mode'] = None
             
-        else:
-            await update.message.reply_text(f"Я получила текст: '{update.message.text}'.")
-
-# --- ЗАПУСК ---
-def main():
-    TOKEN = os.environ.get('BOT_TOKEN')
-    if not TOKEN:
-        print("Ошибка: BOT_TOKEN не найден!")
-        return
-        
-    app = Application.builder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(spin, pattern="^spin_"))
-    app.add_handler(CallbackQueryHandler(skip, pattern="^skip_"))
-    app.add_handler(CallbackQueryHandler(take, pattern="^take_"))
-    app.add_handler(CallbackQueryHandler(start_inbox_add, pattern="^inbox_add"))
-    app.add_handler(CallbackQueryHandler(show_inbox, pattern="^inbox_show"))
-    app.add_handler(CallbackQueryHandler(start_sorting, pattern="^inbox_sort"))
-    app.add_handler(CallbackQueryHandler(cancel_inbox, pattern="^cancel_inbox"))
-    app.add_handler(CallbackQueryHandler(delete_task_prompt, pattern="^delete_task_prompt"))
-    app.add_handler(CallbackQueryHandler(sort_future, pattern="^sort_future"))
-    app.add_handler(CallbackQueryHandler(sort_regular, pattern="^sort_regular"))
-    app.add_handler(CallbackQueryHandler(sort_incubator, pattern="^sort_incubator"))
-    app.add_handler(CallbackQueryHandler(inc_shkaf, pattern="^inc_shkaf"))
-    app.add_handler(CallbackQueryHandler(inc_balkon, pattern="^inc_balkon"))
-    app.add_handler(CallbackQueryHandler(inc_dacha, pattern="^inc_dacha"))
-    app.add_handler(CallbackQueryHandler(sort_skip, pattern="^sort_skip"))
-    app.add_handler(CallbackQueryHandler(view_future, pattern="^view_future"))
-    app.add_handler(CallbackQueryHandler(view_regular, pattern="^view_regular"))
-    app.add_handler(CallbackQueryHandler(view_incubator, pattern="^view_incubator"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("Бот запущен...")
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
+        elif mode == 'add_roulette':
+            block = context.user_data.get('add_block
